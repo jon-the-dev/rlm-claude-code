@@ -1,7 +1,13 @@
 """
-Smart routing for query-based model selection.
+Smart routing for query-based model selection across providers.
 
 Implements: Spec §8.1 Phase 4 - Smart Routing
+
+Routes queries to the optimal model based on:
+- Query type (code, analysis, planning, etc.)
+- Task complexity
+- Provider strengths (Codex for code, Opus for reasoning)
+- Cost/speed tradeoffs
 """
 
 from __future__ import annotations
@@ -10,6 +16,8 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
+
+from .api_client import MODEL_REGISTRY, Provider, resolve_model
 
 
 class QueryType(Enum):
@@ -23,35 +31,161 @@ class QueryType(Enum):
     SUMMARIZATION = "summarization"  # Condensing information
     PLANNING = "planning"  # Multi-step task planning
     DEBUGGING = "debugging"  # Error analysis
+    REFACTORING = "refactoring"  # Code restructuring
+    ARCHITECTURE = "architecture"  # System design
     UNKNOWN = "unknown"
 
 
 class ModelTier(Enum):
     """Model tiers by capability and cost."""
 
-    FAST = "fast"  # Haiku - quick, cheap
-    BALANCED = "balanced"  # Sonnet - good balance
-    POWERFUL = "powerful"  # Opus - highest capability
+    FAST = "fast"  # Quick, cheap responses
+    BALANCED = "balanced"  # Good balance
+    POWERFUL = "powerful"  # Highest capability
+    CODE_SPECIALIST = "code_specialist"  # Optimized for code
 
 
-# Model mappings
-MODEL_BY_TIER: dict[ModelTier, str] = {
-    ModelTier.FAST: "claude-haiku-4-5-20251001",
-    ModelTier.BALANCED: "claude-sonnet-4-20250514",
-    ModelTier.POWERFUL: "claude-opus-4-5-20251101",
+@dataclass
+class ModelOption:
+    """A model option with metadata."""
+
+    name: str  # Shorthand name (e.g., "opus", "codex")
+    provider: Provider
+    tier: ModelTier
+    strengths: list[QueryType]  # Query types this model excels at
+    cost_factor: float  # Relative cost (1.0 = baseline)
+    speed_factor: float  # Relative speed (1.0 = baseline, higher = faster)
+
+
+# Model catalog with strengths and characteristics
+MODEL_CATALOG: dict[str, ModelOption] = {
+    # Anthropic models
+    "opus": ModelOption(
+        name="opus",
+        provider=Provider.ANTHROPIC,
+        tier=ModelTier.POWERFUL,
+        strengths=[
+            QueryType.PLANNING,
+            QueryType.ANALYTICAL,
+            QueryType.ARCHITECTURE,
+            QueryType.CREATIVE,
+        ],
+        cost_factor=3.0,
+        speed_factor=0.5,
+    ),
+    "sonnet": ModelOption(
+        name="sonnet",
+        provider=Provider.ANTHROPIC,
+        tier=ModelTier.BALANCED,
+        strengths=[
+            QueryType.CODE,
+            QueryType.ANALYTICAL,
+            QueryType.DEBUGGING,
+        ],
+        cost_factor=1.0,
+        speed_factor=1.0,
+    ),
+    "haiku": ModelOption(
+        name="haiku",
+        provider=Provider.ANTHROPIC,
+        tier=ModelTier.FAST,
+        strengths=[
+            QueryType.FACTUAL,
+            QueryType.SEARCH,
+            QueryType.SUMMARIZATION,
+        ],
+        cost_factor=0.1,
+        speed_factor=3.0,
+    ),
+    # OpenAI models
+    "gpt-5.2-codex": ModelOption(
+        name="gpt-5.2-codex",
+        provider=Provider.OPENAI,
+        tier=ModelTier.CODE_SPECIALIST,
+        strengths=[
+            QueryType.CODE,
+            QueryType.DEBUGGING,
+            QueryType.REFACTORING,
+            QueryType.ARCHITECTURE,
+        ],
+        cost_factor=1.5,
+        speed_factor=1.2,
+    ),
+    "gpt-5.2": ModelOption(
+        name="gpt-5.2",
+        provider=Provider.OPENAI,
+        tier=ModelTier.POWERFUL,
+        strengths=[
+            QueryType.PLANNING,
+            QueryType.ANALYTICAL,
+            QueryType.CREATIVE,
+        ],
+        cost_factor=2.5,
+        speed_factor=0.6,
+    ),
+    "gpt-4o": ModelOption(
+        name="gpt-4o",
+        provider=Provider.OPENAI,
+        tier=ModelTier.BALANCED,
+        strengths=[
+            QueryType.CODE,
+            QueryType.ANALYTICAL,
+            QueryType.FACTUAL,
+        ],
+        cost_factor=0.8,
+        speed_factor=1.5,
+    ),
+    "gpt-4o-mini": ModelOption(
+        name="gpt-4o-mini",
+        provider=Provider.OPENAI,
+        tier=ModelTier.FAST,
+        strengths=[
+            QueryType.FACTUAL,
+            QueryType.SEARCH,
+            QueryType.SUMMARIZATION,
+        ],
+        cost_factor=0.05,
+        speed_factor=4.0,
+    ),
+    "o1": ModelOption(
+        name="o1",
+        provider=Provider.OPENAI,
+        tier=ModelTier.POWERFUL,
+        strengths=[
+            QueryType.ANALYTICAL,
+            QueryType.PLANNING,
+            QueryType.ARCHITECTURE,
+        ],
+        cost_factor=4.0,
+        speed_factor=0.3,
+    ),
+    "o3-mini": ModelOption(
+        name="o3-mini",
+        provider=Provider.OPENAI,
+        tier=ModelTier.BALANCED,
+        strengths=[
+            QueryType.ANALYTICAL,
+            QueryType.CODE,
+            QueryType.DEBUGGING,
+        ],
+        cost_factor=1.2,
+        speed_factor=1.0,
+    ),
 }
 
-# Default routing: query type -> model tier
-DEFAULT_ROUTING: dict[QueryType, ModelTier] = {
-    QueryType.FACTUAL: ModelTier.FAST,
-    QueryType.ANALYTICAL: ModelTier.BALANCED,
-    QueryType.CREATIVE: ModelTier.BALANCED,
-    QueryType.CODE: ModelTier.BALANCED,
-    QueryType.SEARCH: ModelTier.FAST,
-    QueryType.SUMMARIZATION: ModelTier.FAST,
-    QueryType.PLANNING: ModelTier.POWERFUL,
-    QueryType.DEBUGGING: ModelTier.BALANCED,
-    QueryType.UNKNOWN: ModelTier.BALANCED,
+# Best model for each query type (considering strengths)
+OPTIMAL_MODELS: dict[QueryType, list[str]] = {
+    QueryType.CODE: ["gpt-5.2-codex", "sonnet", "gpt-4o"],
+    QueryType.DEBUGGING: ["gpt-5.2-codex", "sonnet", "o3-mini"],
+    QueryType.REFACTORING: ["gpt-5.2-codex", "sonnet", "gpt-4o"],
+    QueryType.PLANNING: ["opus", "gpt-5.2", "o1"],
+    QueryType.ANALYTICAL: ["opus", "o1", "gpt-5.2"],
+    QueryType.ARCHITECTURE: ["opus", "gpt-5.2-codex", "o1"],
+    QueryType.CREATIVE: ["opus", "gpt-5.2", "sonnet"],
+    QueryType.FACTUAL: ["haiku", "gpt-4o-mini", "gpt-4o"],
+    QueryType.SEARCH: ["haiku", "gpt-4o-mini", "sonnet"],
+    QueryType.SUMMARIZATION: ["haiku", "gpt-4o-mini", "sonnet"],
+    QueryType.UNKNOWN: ["sonnet", "gpt-4o", "opus"],
 }
 
 
@@ -62,63 +196,31 @@ class QueryClassification:
     query_type: QueryType
     confidence: float  # 0.0 to 1.0
     signals: list[str]  # What triggered this classification
-    suggested_tier: ModelTier
+    complexity: float  # 0.0 (simple) to 1.0 (complex)
 
     @property
-    def model(self) -> str:
-        """Get model name for this classification."""
-        return MODEL_BY_TIER[self.suggested_tier]
+    def suggested_models(self) -> list[str]:
+        """Get suggested models for this query type."""
+        return OPTIMAL_MODELS.get(self.query_type, OPTIMAL_MODELS[QueryType.UNKNOWN])
 
 
 @dataclass
 class RoutingDecision:
-    """Final routing decision with fallback chain."""
+    """Final routing decision with reasoning."""
 
     primary_model: str
     fallback_chain: list[str]
     query_type: QueryType
     confidence: float
     reason: str
+    provider: Provider
+    estimated_cost: float  # Relative cost estimate
+    estimated_speed: float  # Relative speed estimate
 
     @property
     def all_models(self) -> list[str]:
         """All models in order of preference."""
         return [self.primary_model, *self.fallback_chain]
-
-
-@dataclass
-class FallbackChain:
-    """Fallback chain configuration."""
-
-    models: list[str]
-    retry_on_errors: list[type[Exception]] = field(
-        default_factory=lambda: [TimeoutError, ConnectionError]
-    )
-    max_retries: int = 2
-
-
-# Default fallback chains by tier
-DEFAULT_FALLBACK_CHAINS: dict[ModelTier, FallbackChain] = {
-    ModelTier.FAST: FallbackChain(
-        models=[
-            MODEL_BY_TIER[ModelTier.FAST],
-            MODEL_BY_TIER[ModelTier.BALANCED],
-        ]
-    ),
-    ModelTier.BALANCED: FallbackChain(
-        models=[
-            MODEL_BY_TIER[ModelTier.BALANCED],
-            MODEL_BY_TIER[ModelTier.POWERFUL],
-            MODEL_BY_TIER[ModelTier.FAST],
-        ]
-    ),
-    ModelTier.POWERFUL: FallbackChain(
-        models=[
-            MODEL_BY_TIER[ModelTier.POWERFUL],
-            MODEL_BY_TIER[ModelTier.BALANCED],
-        ]
-    ),
-}
 
 
 class QueryClassifier:
@@ -136,7 +238,6 @@ class QueryClassifier:
             r"\bwhen did\b",
             r"\bwhere is\b",
             r"\bdefine\b",
-            r"\bexplain\b",
             r"\bhow many\b",
         ],
         QueryType.ANALYTICAL: [
@@ -148,10 +249,11 @@ class QueryClassifier:
             r"\bcritique\b",
             r"\bimplications\b",
             r"\bconsequences\b",
+            r"\btrade.?offs?\b",
         ],
         QueryType.CREATIVE: [
             r"\bwrite\b.*\b(story|poem|essay)\b",
-            r"\bcreate\b",
+            r"\bcreate\b(?!.*\b(file|class|function)\b)",
             r"\bimagine\b",
             r"\binvent\b",
             r"\bbrainstorm\b",
@@ -166,9 +268,9 @@ class QueryClassifier:
             r"\bclass\b",
             r"\bmethod\b",
             r"\bapi\b",
-            r"\bbug\b",
-            r"\berror\b",
-            r"\brefactor\b",
+            r"\bmodule\b",
+            r"\bwrite.*\b(code|function|class)\b",
+            r"\bcreate.*\b(file|class|function|module)\b",
         ],
         QueryType.SEARCH: [
             r"\bfind\b",
@@ -191,9 +293,8 @@ class QueryClassifier:
             r"\bstrategy\b",
             r"\bsteps\b",
             r"\bhow (should|would|can) (i|we)\b",
-            r"\bdesign\b",
-            r"\barchitect\b",
             r"\broadmap\b",
+            r"\bapproach\b",
         ],
         QueryType.DEBUGGING: [
             r"\bdebug\b",
@@ -202,16 +303,47 @@ class QueryClassifier:
             r"\btroubleshoot\b",
             r"\bdiagnose\b",
             r"\bnot working\b",
+            r"\bstack.?trace\b",
+            r"\bexception\b",
+        ],
+        QueryType.REFACTORING: [
+            r"\brefactor\b",
+            r"\brestructure\b",
+            r"\bclean.?up\b",
+            r"\bimprove.*code\b",
+            r"\boptimize\b",
+            r"\bsimplify\b",
+            r"\bmodernize\b",
+        ],
+        QueryType.ARCHITECTURE: [
+            r"\barchitect\b",
+            r"\bdesign\b.*\b(system|api|service)\b",
+            r"\bpattern\b",
+            r"\bstructure\b",
+            r"\bscalability\b",
+            r"\bmicroservice\b",
+            r"\bdata.?flow\b",
         ],
     }
 
-    def __init__(self, custom_patterns: dict[QueryType, list[str]] | None = None):
-        """
-        Initialize classifier with optional custom patterns.
+    # Complexity indicators
+    COMPLEXITY_SIGNALS: dict[str, float] = {
+        r"\bentire\b": 0.3,
+        r"\ball\b.*\bfiles?\b": 0.3,
+        r"\bcodebase\b": 0.4,
+        r"\bcomprehensive\b": 0.3,
+        r"\bdetailed\b": 0.2,
+        r"\bthorough\b": 0.3,
+        r"\bcomplex\b": 0.3,
+        r"\bmultiple\b": 0.2,
+        r"\bacross\b": 0.2,
+        r"\bintegrat": 0.3,
+        r"\brefactor.*entire\b": 0.5,
+        r"\banalyze.*architecture\b": 0.4,
+    }
 
-        Args:
-            custom_patterns: Additional patterns to match
-        """
+    def __init__(self, custom_patterns: dict[QueryType, list[str]] | None = None):
+        """Initialize classifier with optional custom patterns."""
         self.patterns = dict(self.PATTERNS)
         if custom_patterns:
             for query_type, patterns in custom_patterns.items():
@@ -220,22 +352,18 @@ class QueryClassifier:
                 else:
                     self.patterns[query_type] = patterns
 
-        # Compile patterns for efficiency
+        # Compile patterns
         self._compiled: dict[QueryType, list[re.Pattern[str]]] = {
             qt: [re.compile(p, re.IGNORECASE) for p in patterns]
             for qt, patterns in self.patterns.items()
         }
+        self._complexity_compiled = {
+            re.compile(p, re.IGNORECASE): score
+            for p, score in self.COMPLEXITY_SIGNALS.items()
+        }
 
     def classify(self, query: str) -> QueryClassification:
-        """
-        Classify a query by type.
-
-        Args:
-            query: The query string to classify
-
-        Returns:
-            QueryClassification with type, confidence, and signals
-        """
+        """Classify a query by type and complexity."""
         scores: dict[QueryType, list[str]] = {qt: [] for qt in QueryType}
 
         # Match patterns
@@ -257,163 +385,238 @@ class QueryClassifier:
 
         # Calculate confidence
         if max_matches == 0:
-            confidence = 0.3  # Low confidence for unknown
+            confidence = 0.3
         elif max_matches == 1:
             confidence = 0.6
         elif max_matches == 2:
             confidence = 0.8
         else:
-            confidence = 0.9
+            confidence = 0.95
 
-        # Get suggested tier
-        suggested_tier = DEFAULT_ROUTING.get(best_type, ModelTier.BALANCED)
+        # Calculate complexity
+        complexity = 0.0
+        for pattern, score in self._complexity_compiled.items():
+            if pattern.search(query):
+                complexity = min(1.0, complexity + score)
+
+        # Boost complexity for long queries
+        if len(query) > 200:
+            complexity = min(1.0, complexity + 0.2)
+        if len(query) > 500:
+            complexity = min(1.0, complexity + 0.2)
 
         return QueryClassification(
             query_type=best_type,
             confidence=confidence,
             signals=best_signals,
-            suggested_tier=suggested_tier,
+            complexity=complexity,
         )
 
 
 class SmartRouter:
     """
-    Route queries to appropriate models with fallback support.
+    Route queries to optimal models across providers.
 
     Implements: Spec §8.1 Phase 4 - Smart Routing
+
+    Considers:
+    - Query type and complexity
+    - Model strengths per task type
+    - Available providers
+    - Cost/speed preferences
     """
 
     def __init__(
         self,
         classifier: QueryClassifier | None = None,
-        routing_overrides: dict[QueryType, ModelTier] | None = None,
-        fallback_chains: dict[ModelTier, FallbackChain] | None = None,
+        available_providers: list[Provider] | None = None,
+        prefer_speed: bool = False,
+        prefer_cost: bool = False,
+        force_provider: Provider | None = None,
     ):
         """
         Initialize router.
 
         Args:
             classifier: Query classifier to use
-            routing_overrides: Override default routing decisions
-            fallback_chains: Custom fallback chains by tier
+            available_providers: Which providers have API keys configured
+            prefer_speed: Prefer faster models
+            prefer_cost: Prefer cheaper models
+            force_provider: Only use this provider
         """
         self.classifier = classifier or QueryClassifier()
-        self.routing = dict(DEFAULT_ROUTING)
-        if routing_overrides:
-            self.routing.update(routing_overrides)
-
-        self.fallback_chains = dict(DEFAULT_FALLBACK_CHAINS)
-        if fallback_chains:
-            self.fallback_chains.update(fallback_chains)
-
-        # Tracking for learning
+        self.available_providers = available_providers or list(Provider)
+        self.prefer_speed = prefer_speed
+        self.prefer_cost = prefer_cost
+        self.force_provider = force_provider
         self._routing_history: list[dict[str, Any]] = []
 
     def route(
         self,
         query: str,
         context: dict[str, Any] | None = None,
-        force_tier: ModelTier | None = None,
+        force_model: str | None = None,
     ) -> RoutingDecision:
         """
-        Route a query to the appropriate model.
-
-        Implements: Spec §8.1 Model selection by query
+        Route a query to the optimal model.
 
         Args:
             query: The query to route
-            context: Optional context for routing decisions
-            force_tier: Force a specific tier (overrides classification)
+            context: Optional context (depth, remaining_tokens, etc.)
+            force_model: Force a specific model
 
         Returns:
-            RoutingDecision with primary model and fallback chain
+            RoutingDecision with primary model and fallbacks
         """
+        # Handle forced model
+        if force_model:
+            provider, _ = resolve_model(force_model)
+            return RoutingDecision(
+                primary_model=force_model,
+                fallback_chain=[],
+                query_type=QueryType.UNKNOWN,
+                confidence=1.0,
+                reason=f"Forced model: {force_model}",
+                provider=provider,
+                estimated_cost=MODEL_CATALOG.get(force_model, MODEL_CATALOG["sonnet"]).cost_factor,
+                estimated_speed=MODEL_CATALOG.get(force_model, MODEL_CATALOG["sonnet"]).speed_factor,
+            )
+
         # Classify query
         classification = self.classifier.classify(query)
 
-        # Determine tier
-        if force_tier is not None:
-            tier = force_tier
-            reason = f"Forced tier: {tier.value}"
-        else:
-            tier = self.routing.get(classification.query_type, ModelTier.BALANCED)
-            reason = f"Query type {classification.query_type.value} -> {tier.value}"
+        # Get candidate models
+        candidates = self._get_candidates(classification)
 
-        # Apply context-based adjustments
+        # Filter by available providers
+        candidates = [
+            m for m in candidates
+            if MODEL_CATALOG[m].provider in self.available_providers
+        ]
+
+        # Filter by forced provider
+        if self.force_provider:
+            candidates = [
+                m for m in candidates
+                if MODEL_CATALOG[m].provider == self.force_provider
+            ]
+
+        # Apply context adjustments
         if context:
-            tier, reason = self._adjust_for_context(tier, reason, context)
+            candidates = self._adjust_for_context(candidates, context, classification)
 
-        # Get fallback chain
-        chain = self.fallback_chains.get(tier, DEFAULT_FALLBACK_CHAINS[ModelTier.BALANCED])
+        # Apply preferences
+        if self.prefer_speed:
+            candidates.sort(key=lambda m: -MODEL_CATALOG[m].speed_factor)
+        elif self.prefer_cost:
+            candidates.sort(key=lambda m: MODEL_CATALOG[m].cost_factor)
 
-        # Create decision
+        # Ensure we have at least one candidate
+        if not candidates:
+            candidates = ["sonnet"] if Provider.ANTHROPIC in self.available_providers else ["gpt-4o"]
+
+        primary = candidates[0]
+        primary_info = MODEL_CATALOG.get(primary, MODEL_CATALOG["sonnet"])
+
+        # Build fallback chain (different providers for resilience)
+        fallbacks = []
+        for m in candidates[1:4]:  # Up to 3 fallbacks
+            if MODEL_CATALOG[m].provider != primary_info.provider or len(fallbacks) < 2:
+                fallbacks.append(m)
+
+        # Build reason
+        reason_parts = [
+            f"Query type: {classification.query_type.value}",
+            f"Complexity: {classification.complexity:.1f}",
+        ]
+        if classification.signals:
+            reason_parts.append(f"Signals: {', '.join(classification.signals[:3])}")
+        if self.prefer_speed:
+            reason_parts.append("(speed preferred)")
+        if self.prefer_cost:
+            reason_parts.append("(cost preferred)")
+
         decision = RoutingDecision(
-            primary_model=MODEL_BY_TIER[tier],
-            fallback_chain=chain.models[1:] if len(chain.models) > 1 else [],
+            primary_model=primary,
+            fallback_chain=fallbacks,
             query_type=classification.query_type,
             confidence=classification.confidence,
-            reason=reason,
+            reason=" | ".join(reason_parts),
+            provider=primary_info.provider,
+            estimated_cost=primary_info.cost_factor,
+            estimated_speed=primary_info.speed_factor,
         )
 
-        # Track for learning
-        self._routing_history.append(
-            {
-                "query": query[:100],
-                "classification": classification.query_type.value,
-                "tier": tier.value,
-                "model": decision.primary_model,
-            }
-        )
+        # Track
+        self._routing_history.append({
+            "query": query[:100],
+            "type": classification.query_type.value,
+            "model": primary,
+            "provider": primary_info.provider.value,
+        })
 
         return decision
 
+    def _get_candidates(self, classification: QueryClassification) -> list[str]:
+        """Get candidate models for a classification."""
+        # Start with optimal models for this query type
+        candidates = list(classification.suggested_models)
+
+        # Add more based on complexity
+        if classification.complexity > 0.7:
+            # High complexity - add powerful models
+            for model in ["opus", "gpt-5.2", "o1"]:
+                if model not in candidates:
+                    candidates.insert(0, model)
+        elif classification.complexity < 0.3:
+            # Low complexity - add fast models
+            for model in ["haiku", "gpt-4o-mini"]:
+                if model not in candidates:
+                    candidates.append(model)
+
+        return candidates
+
     def _adjust_for_context(
-        self, tier: ModelTier, reason: str, context: dict[str, Any]
-    ) -> tuple[ModelTier, str]:
-        """Adjust routing based on context."""
+        self,
+        candidates: list[str],
+        context: dict[str, Any],
+        classification: QueryClassification,
+    ) -> list[str]:
+        """Adjust candidates based on context."""
+        result = list(candidates)
+
         # Depth-based adjustment
         depth = context.get("depth", 0)
-        if depth > 1 and tier == ModelTier.POWERFUL:
-            # Use lighter model for deep recursion
-            return ModelTier.BALANCED, f"{reason} (downgraded for depth={depth})"
+        if depth > 0:
+            # For recursive calls, prefer faster/cheaper models
+            fast_models = [m for m in result if MODEL_CATALOG[m].tier in (ModelTier.FAST, ModelTier.BALANCED)]
+            if fast_models:
+                result = fast_models + [m for m in result if m not in fast_models]
 
         # Token budget adjustment
         remaining_tokens = context.get("remaining_tokens")
         if remaining_tokens is not None and remaining_tokens < 10000:
-            if tier == ModelTier.POWERFUL:
-                return ModelTier.BALANCED, f"{reason} (downgraded for low budget)"
-            if tier == ModelTier.BALANCED:
-                return ModelTier.FAST, f"{reason} (downgraded for low budget)"
+            # Low budget - prioritize cheap models
+            result.sort(key=lambda m: MODEL_CATALOG[m].cost_factor)
 
-        # Complexity override
-        if context.get("force_powerful"):
-            return ModelTier.POWERFUL, f"{reason} (forced powerful by context)"
+        # Force powerful for certain contexts
+        if context.get("force_powerful") and classification.complexity > 0.5:
+            powerful = [m for m in result if MODEL_CATALOG[m].tier == ModelTier.POWERFUL]
+            if powerful:
+                result = powerful + [m for m in result if m not in powerful]
 
-        return tier, reason
-
-    def get_fallback_chain(self, tier: ModelTier) -> FallbackChain:
-        """Get fallback chain for a tier."""
-        return self.fallback_chains.get(tier, DEFAULT_FALLBACK_CHAINS[ModelTier.BALANCED])
+        return result
 
     def record_outcome(
         self, query: str, model_used: str, success: bool, latency_ms: float
     ) -> None:
-        """
-        Record routing outcome for learning.
-
-        Args:
-            query: Original query
-            model_used: Model that was used
-            success: Whether the query succeeded
-            latency_ms: Response latency
-        """
-        # Find matching history entry
+        """Record routing outcome for learning."""
         for entry in reversed(self._routing_history[-100:]):
             if entry["query"] == query[:100]:
                 entry["outcome"] = {
-                    "model_used": model_used,
                     "success": success,
                     "latency_ms": latency_ms,
+                    "model_used": model_used,
                 }
                 break
 
@@ -423,72 +626,49 @@ class SmartRouter:
             return {"total_routes": 0}
 
         by_type: dict[str, int] = {}
-        by_tier: dict[str, int] = {}
-        successes = 0
-        failures = 0
+        by_model: dict[str, int] = {}
+        by_provider: dict[str, int] = {}
 
         for entry in self._routing_history:
-            query_type = entry["classification"]
-            tier = entry["tier"]
+            qt = entry["type"]
+            model = entry["model"]
+            provider = entry["provider"]
 
-            by_type[query_type] = by_type.get(query_type, 0) + 1
-            by_tier[tier] = by_tier.get(tier, 0) + 1
-
-            if "outcome" in entry:
-                if entry["outcome"]["success"]:
-                    successes += 1
-                else:
-                    failures += 1
+            by_type[qt] = by_type.get(qt, 0) + 1
+            by_model[model] = by_model.get(model, 0) + 1
+            by_provider[provider] = by_provider.get(provider, 0) + 1
 
         return {
             "total_routes": len(self._routing_history),
             "by_query_type": by_type,
-            "by_tier": by_tier,
-            "success_rate": successes / (successes + failures) if (successes + failures) > 0 else None,
-            "outcomes_recorded": successes + failures,
+            "by_model": by_model,
+            "by_provider": by_provider,
         }
-
-    def reset_statistics(self) -> None:
-        """Reset routing statistics."""
-        self._routing_history.clear()
 
 
 class FallbackExecutor:
-    """
-    Execute queries with automatic fallback on failure.
-
-    Implements: Spec §8.1 Fallback chains
-    """
+    """Execute queries with automatic fallback on failure."""
 
     def __init__(self, router: SmartRouter):
-        """
-        Initialize executor.
-
-        Args:
-            router: Router for getting fallback chains
-        """
         self.router = router
         self._execution_history: list[dict[str, Any]] = []
 
     async def execute_with_fallback(
         self,
         query: str,
-        execute_fn: Any,  # Callable[[str, str], Awaitable[str]]
+        execute_fn: Any,
         context: dict[str, Any] | None = None,
     ) -> tuple[str, str]:
         """
-        Execute query with automatic fallback on failure.
+        Execute query with automatic fallback.
 
         Args:
             query: Query to execute
             execute_fn: Async function(query, model) -> result
-            context: Optional context for routing
+            context: Optional routing context
 
         Returns:
             (result, model_used) tuple
-
-        Raises:
-            Exception: If all models in fallback chain fail
         """
         import time
 
@@ -502,16 +682,13 @@ class FallbackExecutor:
                 result = await execute_fn(query, model)
                 latency = (time.time() - start) * 1000
 
-                # Record success
                 self.router.record_outcome(query, model, success=True, latency_ms=latency)
-                self._execution_history.append(
-                    {
-                        "query": query[:100],
-                        "model": model,
-                        "success": True,
-                        "latency_ms": latency,
-                    }
-                )
+                self._execution_history.append({
+                    "query": query[:100],
+                    "model": model,
+                    "success": True,
+                    "latency_ms": latency,
+                })
 
                 return result, model
 
@@ -519,52 +696,57 @@ class FallbackExecutor:
                 latency = (time.time() - start) * 1000
                 last_error = e
 
-                # Record failure
                 self.router.record_outcome(query, model, success=False, latency_ms=latency)
-                self._execution_history.append(
-                    {
-                        "query": query[:100],
-                        "model": model,
-                        "success": False,
-                        "error": str(e),
-                        "latency_ms": latency,
-                    }
-                )
-
-                # Continue to next model in chain
+                self._execution_history.append({
+                    "query": query[:100],
+                    "model": model,
+                    "success": False,
+                    "error": str(e),
+                    "latency_ms": latency,
+                })
                 continue
 
-        # All models failed
-        raise last_error or RuntimeError("All models in fallback chain failed")
+        raise last_error or RuntimeError("All models failed")
 
-    def get_execution_statistics(self) -> dict[str, Any]:
-        """Get execution statistics."""
-        if not self._execution_history:
-            return {"total_executions": 0}
 
-        successes = sum(1 for e in self._execution_history if e["success"])
-        failures = len(self._execution_history) - successes
-        latencies = [e["latency_ms"] for e in self._execution_history if e["success"]]
+# Convenience function
+def get_optimal_model(
+    query: str,
+    available_providers: list[Provider] | None = None,
+    prefer_speed: bool = False,
+    prefer_cost: bool = False,
+) -> str:
+    """
+    Get the optimal model for a query.
 
-        return {
-            "total_executions": len(self._execution_history),
-            "successes": successes,
-            "failures": failures,
-            "success_rate": successes / len(self._execution_history),
-            "avg_latency_ms": sum(latencies) / len(latencies) if latencies else None,
-        }
+    Args:
+        query: The query to route
+        available_providers: Which providers are available
+        prefer_speed: Prefer faster models
+        prefer_cost: Prefer cheaper models
+
+    Returns:
+        Model name (shorthand)
+    """
+    router = SmartRouter(
+        available_providers=available_providers,
+        prefer_speed=prefer_speed,
+        prefer_cost=prefer_cost,
+    )
+    decision = router.route(query)
+    return decision.primary_model
 
 
 __all__ = [
-    "DEFAULT_FALLBACK_CHAINS",
-    "DEFAULT_ROUTING",
-    "MODEL_BY_TIER",
-    "FallbackChain",
     "FallbackExecutor",
+    "MODEL_CATALOG",
+    "ModelOption",
     "ModelTier",
+    "OPTIMAL_MODELS",
     "QueryClassification",
     "QueryClassifier",
     "QueryType",
     "RoutingDecision",
     "SmartRouter",
+    "get_optimal_model",
 ]
