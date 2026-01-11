@@ -15,7 +15,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, AsyncIterator
+from collections.abc import AsyncGenerator
+from typing import Any
 
 import anthropic
 import openai
@@ -117,7 +118,7 @@ class BaseLLMClient(ABC):
         pass
 
     @abstractmethod
-    async def complete_streaming(
+    def complete_streaming(
         self,
         messages: list[dict[str, str]],
         system: str | None = None,
@@ -125,9 +126,9 @@ class BaseLLMClient(ABC):
         max_tokens: int = 4096,
         temperature: float = 0.0,
         component: CostComponent = CostComponent.ROOT_PROMPT,
-    ) -> AsyncIterator[StreamChunk]:
+    ) -> AsyncGenerator[StreamChunk, None]:
         """Get streaming completion from LLM."""
-        pass
+        ...
 
 
 class AnthropicClient(BaseLLMClient):
@@ -198,7 +199,7 @@ class AnthropicClient(BaseLLMClient):
         max_tokens: int = 4096,
         temperature: float = 0.0,
         component: CostComponent = CostComponent.ROOT_PROMPT,
-    ) -> AsyncIterator[StreamChunk]:
+    ) -> AsyncGenerator[StreamChunk, None]:
         model = model or "claude-opus-4-5-20251101"
 
         request_params: dict[str, Any] = {
@@ -314,7 +315,7 @@ class OpenAIClient(BaseLLMClient):
         max_tokens: int = 4096,
         temperature: float = 0.0,
         component: CostComponent = CostComponent.ROOT_PROMPT,
-    ) -> AsyncIterator[StreamChunk]:
+    ) -> AsyncGenerator[StreamChunk, None]:
         model = model or "gpt-5.2-codex"
 
         full_messages = []
@@ -456,7 +457,7 @@ class MultiProviderClient:
         max_tokens: int = 4096,
         temperature: float = 0.0,
         component: CostComponent = CostComponent.ROOT_PROMPT,
-    ) -> AsyncIterator[StreamChunk]:
+    ) -> AsyncGenerator[StreamChunk, None]:
         """Get streaming completion, routing to appropriate provider."""
         model = model or self.default_model
         client, full_model = self._get_client(model)

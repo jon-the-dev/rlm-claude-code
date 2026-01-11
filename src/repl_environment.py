@@ -431,7 +431,13 @@ class RLMEnvironment:
             # Fallback: placeholder response
             return f"[Recursive query: {query[:50]}... on {type(context).__name__}]"
 
-    def _run_tool(self, tool: str, *args: str, timeout: float = 30.0) -> dict[str, Any]:
+    def _run_tool(
+        self,
+        tool: str,
+        *args: str,
+        timeout: float = 30.0,
+        stdin_input: str | None = None,
+    ) -> dict[str, Any]:
         """
         Run an allowed subprocess tool.
 
@@ -441,6 +447,7 @@ class RLMEnvironment:
             tool: Tool name (must be in ALLOWED_SUBPROCESSES)
             *args: Arguments to pass to tool
             timeout: Timeout in seconds
+            stdin_input: Optional input to pass via stdin
 
         Returns:
             Dict with stdout, stderr, returncode
@@ -459,6 +466,7 @@ class RLMEnvironment:
                 capture_output=True,
                 text=True,
                 timeout=timeout,
+                input=stdin_input,
             )
             return {
                 "stdout": result.stdout,
@@ -561,10 +569,8 @@ async def typecheck_snippet(code: str, timeout: float = 30.0) -> dict[str, Any]:
     Returns:
         TypeCheckResult with success status and errors
     """
-    # TODO: Pass code via stdin to ty
-    _ = code  # Will be used when stdin piping is implemented
     env = RLMEnvironment(SessionContext())
-    result = env._run_tool("ty", "check", "-", timeout=timeout)
+    result = env._run_tool("ty", "check", "-", timeout=timeout, stdin_input=code)
 
     return {
         "success": result["success"],
@@ -586,11 +592,14 @@ async def lint_snippet(code: str, timeout: float = 30.0) -> dict[str, Any]:
     Returns:
         LintResult with issues found
     """
-    # TODO: Pass code via stdin to ruff
-    _ = code  # Will be used when stdin piping is implemented
     env = RLMEnvironment(SessionContext())
     result = env._run_tool(
-        "ruff", "check", "--stdin-filename=snippet.py", "-", timeout=timeout
+        "ruff",
+        "check",
+        "--stdin-filename=snippet.py",
+        "-",
+        timeout=timeout,
+        stdin_input=code,
     )
 
     return {

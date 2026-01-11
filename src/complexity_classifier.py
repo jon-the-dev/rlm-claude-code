@@ -7,7 +7,58 @@ Implements: Spec §6.3 Task Complexity-Based Activation
 import re
 from pathlib import Path
 
-from .types import SessionContext, TaskComplexitySignals
+from .types import MessageRole, SessionContext, TaskComplexitySignals
+
+
+def _detect_state_changes(context: SessionContext) -> bool:
+    """
+    Detect if recent tool outputs indicate state changes.
+
+    State-changing operations include file edits, writes, and
+    bash commands that modify the filesystem.
+    """
+    state_changing_tools = {"Edit", "Write", "NotebookEdit"}
+    state_changing_bash_patterns = [
+        r"\b(mkdir|rm|mv|cp|touch|chmod|chown)\b",
+        r"\bgit\s+(add|commit|push|checkout|merge|rebase)\b",
+        r"\b(npm|yarn|pip|cargo)\s+(install|remove|update)\b",
+    ]
+
+    for output in context.tool_outputs[-10:]:  # Check last 10 tool outputs
+        if output.tool_name in state_changing_tools:
+            return True
+        if output.tool_name == "Bash":
+            for pattern in state_changing_bash_patterns:
+                if re.search(pattern, output.content):
+                    return True
+    return False
+
+
+def _detect_confusion(context: SessionContext) -> bool:
+    """
+    Detect if the previous assistant turn showed signs of confusion.
+
+    Confusion indicators include apologies, corrections, uncertainty,
+    and explicit statements of misunderstanding.
+    """
+    confusion_patterns = [
+        r"\b(sorry|apologi[zs]e|my (mistake|bad|error))\b",
+        r"\b(actually|wait|correction|let me (re|correct))\b",
+        r"\b(i (was|am) (wrong|mistaken|confused))\b",
+        r"\b(not sure|uncertain|unclear)\b",
+        r"\b(misunderstood|misread|overlooked)\b",
+        r"\bthat('s| is) not (right|correct|what)\b",
+    ]
+
+    # Find the last assistant message
+    for msg in reversed(context.messages):
+        if msg.role == MessageRole.ASSISTANT:
+            content_lower = msg.content.lower()
+            for pattern in confusion_patterns:
+                if re.search(pattern, content_lower):
+                    return True
+            break  # Only check the most recent assistant message
+    return False
 
 
 def extract_complexity_signals(prompt: str, context: SessionContext) -> TaskComplexitySignals:
@@ -76,12 +127,12 @@ def extract_complexity_signals(prompt: str, context: SessionContext) -> TaskComp
         debugging_task=any(re.search(p, prompt_lower) for p in debug_patterns),
         context_has_multiple_domains=len(context.active_modules) > 2,
         recent_tool_outputs_large=sum(len(o.content) for o in context.tool_outputs[-5:]) > 10000,
-        conversation_has_state_changes=False,  # TODO: Implement
+        conversation_has_state_changes=_detect_state_changes(context),
         files_span_multiple_modules=len(
             {Path(f).parts[0] for f in context.files if Path(f).parts}
         )
         > 2,
-        previous_turn_was_confused=False,  # TODO: Implement
+        previous_turn_was_confused=_detect_confusion(context),
         task_is_continuation="continue" in prompt_lower
         or "same" in prompt_lower
         or "also" in prompt_lower[:50],

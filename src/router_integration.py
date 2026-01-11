@@ -4,7 +4,24 @@ Model routing integration for RLM-Claude-Code.
 Implements: Spec §5.3 Router Configuration
 """
 
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from .api_client import MultiProviderClient, get_client
 from .config import RLMConfig, default_config
+from .cost_tracker import CostComponent
+
+
+@dataclass
+class CompletionResult:
+    """Result of a model completion."""
+
+    content: str
+    model: str
+    tokens_used: int
+    input_tokens: int = 0
+    output_tokens: int = 0
 
 
 class ModelRouter:
@@ -14,14 +31,27 @@ class ModelRouter:
     Implements: Spec §5.3 Router Configuration
     """
 
-    def __init__(self, config: RLMConfig | None = None):
+    def __init__(
+        self,
+        config: RLMConfig | None = None,
+        client: MultiProviderClient | None = None,
+    ):
         """
         Initialize router.
 
         Args:
             config: RLM configuration
+            client: LLM client (uses global if not provided)
         """
         self.config = config or default_config
+        self._client = client
+
+    @property
+    def client(self) -> MultiProviderClient:
+        """Get LLM client, initializing if needed."""
+        if self._client is None:
+            self._client = get_client()
+        return self._client
 
     def get_model(self, depth: int, query_type: str | None = None) -> str:
         """
@@ -51,38 +81,46 @@ class ModelRouter:
         prompt: str,
         max_tokens: int = 4000,
         depth: int = 0,
-    ) -> "CompletionResult":
+        system: str | None = None,
+    ) -> CompletionResult:
         """
         Make a model completion call.
+
+        Implements: Spec §5.1 API Integration
 
         Args:
             model: Model identifier
             prompt: Prompt to complete
             max_tokens: Max tokens in response
-            depth: Current depth (for logging)
+            depth: Current depth (for logging/cost tracking)
+            system: Optional system prompt
 
         Returns:
             CompletionResult with response
         """
-        # TODO: Implement actual API calls
-        # Could integrate with claude-code-router here
-        # For now, return placeholder (prompt and max_tokens will be used in real impl)
-        _ = (prompt, max_tokens)  # Reserved for API call implementation
+        # Determine cost component based on depth
+        if depth == 0:
+            component = CostComponent.ROOT_PROMPT
+        else:
+            component = CostComponent.RECURSIVE_CALL
 
-        return CompletionResult(
-            content=f"[Model {model} completion for depth={depth}]",
+        messages = [{"role": "user", "content": prompt}]
+
+        response = await self.client.complete(
+            messages=messages,
+            system=system,
             model=model,
-            tokens_used=0,
+            max_tokens=max_tokens,
+            component=component,
         )
 
-
-class CompletionResult:
-    """Result of a model completion."""
-
-    def __init__(self, content: str, model: str, tokens_used: int):
-        self.content = content
-        self.model = model
-        self.tokens_used = tokens_used
+        return CompletionResult(
+            content=response.content,
+            model=response.model,
+            tokens_used=response.input_tokens + response.output_tokens,
+            input_tokens=response.input_tokens,
+            output_tokens=response.output_tokens,
+        )
 
 
 def generate_router_config() -> dict:
@@ -96,7 +134,7 @@ def generate_router_config() -> dict:
     return {
         "Router": {
             "default": "anthropic,claude-sonnet-4",
-            "rlm_root": f"anthropic,{config.models.root}",
+            "rlm_root": f"anthropic,{config.models.root_model}",
             "rlm_recursive": f"anthropic,{config.models.recursive_depth_1}",
             "rlm_recursive_deep": f"anthropic,{config.models.recursive_depth_2}",
             "rlm_max_depth": config.depth.max,
@@ -127,7 +165,7 @@ def generate_router_config() -> dict:
                 "export_path": config.trajectory.export_path,
             },
             "models": {
-                "root": config.models.root,
+                "root_model": config.models.root_model,
                 "recursive_depth_1": config.models.recursive_depth_1,
                 "recursive_depth_2": config.models.recursive_depth_2,
             },
