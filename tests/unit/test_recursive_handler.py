@@ -68,9 +68,9 @@ def basic_config():
             abort_on_cost_threshold=50000,
         ),
         models=ModelConfig(
-            root="claude-opus-4-5-20251101",
-            recursive_depth_1="claude-sonnet-4",
-            recursive_depth_2="claude-haiku-4-5-20251001",
+            root_model="opus",
+            recursive_depth_1="sonnet",
+            recursive_depth_2="haiku",
         ),
     )
 
@@ -152,7 +152,7 @@ class TestRecursiveREPLModelSelection:
         )
 
         model = repl.get_model_for_depth()
-        assert model == "claude-opus-4-5-20251101"
+        assert model == "opus"
 
     def test_depth_1_selects_recursive_model(self, basic_context, basic_config):
         """Depth 1 selects recursive model (Sonnet)."""
@@ -165,7 +165,7 @@ class TestRecursiveREPLModelSelection:
         )
 
         model = repl.get_model_for_depth()
-        assert model == "claude-sonnet-4"
+        assert model == "sonnet"
 
     def test_depth_2_selects_deep_model(self, basic_context, basic_config):
         """Depth 2+ selects deep recursive model (Haiku)."""
@@ -178,7 +178,7 @@ class TestRecursiveREPLModelSelection:
         )
 
         model = repl.get_model_for_depth()
-        assert model == "claude-haiku-4-5-20251001"
+        assert model == "haiku"
 
 
 class TestRecursiveREPLRecursiveQuery:

@@ -39,7 +39,7 @@ class ModelRouter:
         # query_type reserved for future smart routing by query type
         _ = query_type
         if depth == 0:
-            return self.config.models.root
+            return self.config.models.root_model
         elif depth == 1:
             return self.config.models.recursive_depth_1
         else:

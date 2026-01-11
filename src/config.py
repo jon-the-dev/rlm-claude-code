@@ -52,9 +52,12 @@ class TrajectoryConfig:
 class ModelConfig:
     """Configuration for model selection by depth."""
 
-    root: str = "claude-opus-4-5-20251101"
-    recursive_depth_1: str = "claude-sonnet-4"
-    recursive_depth_2: str = "claude-haiku-4-5-20251001"
+    root_model: str = "opus"  # Default to Opus
+    recursive_depth_1: str = "sonnet"
+    recursive_depth_2: str = "haiku"
+    # Alternative models for OpenAI routing
+    openai_root: str = "gpt-5.2-codex"
+    openai_recursive: str = "gpt-4o-mini"
 
 
 @dataclass

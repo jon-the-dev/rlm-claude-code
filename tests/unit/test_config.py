@@ -130,19 +130,19 @@ class TestModelConfig:
         """Has expected default model values."""
         config = ModelConfig()
 
-        assert config.root == "claude-opus-4-5-20251101"
-        assert config.recursive_depth_1 == "claude-sonnet-4"
-        assert config.recursive_depth_2 == "claude-haiku-4-5-20251001"
+        assert config.root_model == "opus"
+        assert config.recursive_depth_1 == "sonnet"
+        assert config.recursive_depth_2 == "haiku"
 
     def test_custom_values(self):
         """Can create with custom model values."""
         config = ModelConfig(
-            root="custom-root",
+            root_model="custom-root",
             recursive_depth_1="custom-d1",
             recursive_depth_2="custom-d2",
         )
 
-        assert config.root == "custom-root"
+        assert config.root_model == "custom-root"
         assert config.recursive_depth_1 == "custom-d1"
         assert config.recursive_depth_2 == "custom-d2"
 
@@ -209,7 +209,7 @@ class TestRLMConfig:
                 {
                     "activation": {"mode": "always"},
                     "depth": {"max": 5, "default": 3},
-                    "models": {"root": "custom-model"},
+                    "models": {"root_model": "custom-model"},
                 },
                 f,
             )
@@ -222,7 +222,7 @@ class TestRLMConfig:
             assert config.activation.mode == "always"
             assert config.depth.max == 5
             assert config.depth.default == 3
-            assert config.models.root == "custom-model"
+            assert config.models.root_model == "custom-model"
             # Non-specified values should be defaults
             assert config.hybrid.enabled is True
         finally:
@@ -235,7 +235,7 @@ class TestRLMConfig:
             depth=DepthConfig(max=4, spawn_repl_at_depth_1=False),
             hybrid=HybridConfig(enabled=False),
             trajectory=TrajectoryConfig(verbosity="debug"),
-            models=ModelConfig(root="test-model"),
+            models=ModelConfig(root_model="test-model"),
             cost_controls=CostConfig(max_recursive_calls_per_turn=20),
         )
 
@@ -250,7 +250,7 @@ class TestRLMConfig:
         assert loaded.depth.spawn_repl_at_depth_1 is False
         assert loaded.hybrid.enabled is False
         assert loaded.trajectory.verbosity == "debug"
-        assert loaded.models.root == "test-model"
+        assert loaded.models.root_model == "test-model"
         assert loaded.cost_controls.max_recursive_calls_per_turn == 20
 
     def test_save_creates_parent_dirs(self):
@@ -280,7 +280,7 @@ class TestRLMConfig:
             assert config.depth.max == 10
             # Other sections should be defaults
             assert config.activation.mode == "complexity"
-            assert config.models.root == "claude-opus-4-5-20251101"
+            assert config.models.root_model == "opus"
         finally:
             config_path.unlink()
 
@@ -296,4 +296,4 @@ class TestDefaultConfig:
         """default_config has expected default values."""
         assert default_config.activation.mode == "complexity"
         assert default_config.depth.max == 3
-        assert default_config.models.root == "claude-opus-4-5-20251101"
+        assert default_config.models.root_model == "opus"
