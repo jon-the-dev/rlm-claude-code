@@ -13,6 +13,8 @@ This document captures architectural decisions for RLM-Claude-Code. Each decisio
 | ADR-005 | Streaming Trajectory | Accepted | 2025-01 |
 | ADR-006 | Extended Python Tooling | Accepted | 2025-01 |
 | ADR-007 | CPMpy for Constraint Verification | Accepted | 2025-01 |
+| ADR-008 | Intelligent Orchestration Layer | Accepted | 2026-01 |
+| ADR-009 | Strategy Learning from Trajectories | Accepted | 2026-01 |
 
 ---
 
@@ -197,9 +199,83 @@ This document captures architectural decisions for RLM-Claude-Code. Each decisio
 
 ---
 
+## ADR-008: Intelligent Orchestration Layer
+
+**Status**: Accepted
+
+**Context**: RLM decisions (model selection, depth budget, tool access) were heuristic-only. Options:
+1. Keep heuristic-only routing
+2. Use Claude as intelligent orchestrator
+3. Train separate orchestrator model
+4. Hybrid approach
+
+**Decision**: Claude Haiku as intelligent orchestrator with heuristic fallback.
+
+**Consequences**:
+- ✅ Intelligent model selection based on task analysis
+- ✅ Fast decisions (~200ms with Haiku)
+- ✅ Graceful fallback when API unavailable
+- ✅ User-configurable preferences (fast/balanced/thorough)
+- ⚠️ Additional API call per query
+- ⚠️ Orchestrator accuracy depends on prompt quality
+- Mitigation: Cache decisions for similar queries
+
+**Components**:
+| Module | Purpose |
+|--------|---------|
+| orchestration_schema.py | Plan and context types |
+| intelligent_orchestrator.py | Claude-powered decisions |
+| user_preferences.py | User preference management |
+| auto_activation.py | Automatic RLM activation |
+
+**Spec Reference**: §8.1 Phase 2
+
+---
+
+## ADR-009: Strategy Learning from Trajectories
+
+**Status**: Accepted
+
+**Context**: Successful RLM trajectories contain strategy patterns that could inform future queries. Options:
+1. No learning (stateless)
+2. Rule-based strategy detection
+3. Embedding-based similarity matching
+4. Full ML training loop
+
+**Decision**: Feature-based similarity matching with strategy cache.
+
+**Consequences**:
+- ✅ Learn from successful trajectories
+- ✅ Suggest strategies for similar queries
+- ✅ No ML training required
+- ✅ Interpretable features and decisions
+- ⚠️ Cold start problem (empty cache)
+- ⚠️ Feature engineering required
+- Mitigation: Sensible defaults when cache empty
+
+**Strategy Types**:
+| Strategy | Pattern |
+|----------|---------|
+| Peeking | Sample context before deep processing |
+| Grepping | Regex/pattern-based search |
+| Partition+Map | Divide context, process via sub-calls |
+| Programmatic | One-shot code execution |
+| Recursive | Spawn sub-queries for complex reasoning |
+
+**Components**:
+| Module | Purpose |
+|--------|---------|
+| trajectory_analysis.py | Strategy extraction from events |
+| strategy_cache.py | Similarity-based caching |
+| tool_bridge.py | Controlled tool access for sub-LLMs |
+
+**Spec Reference**: §8.1 Phase 3
+
+---
+
 ## Pending Decisions
 
-### ADR-007: REPL State Isolation at Depth=2
+### ADR-010: REPL State Isolation at Depth=2
 
 **Status**: Proposed
 
@@ -219,7 +295,7 @@ This document captures architectural decisions for RLM-Claude-Code. Each decisio
 
 ---
 
-### ADR-008: Tool Interleaving Strategy
+### ADR-011: Tool Interleaving Strategy
 
 **Status**: Proposed
 

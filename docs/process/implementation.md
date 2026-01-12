@@ -12,6 +12,7 @@ Update this section as phases complete:
 | 2. Claude Code Integration | Complete | 2026-01-11 | 2026-01-11 |
 | 3. Optimization | Complete | 2026-01-11 | 2026-01-11 |
 | 4. Advanced Features | Complete | 2026-01-11 | 2026-01-11 |
+| 5. Intelligent Orchestration | Complete | 2026-01-11 | 2026-01-11 |
 
 ## Implementation Order
 
@@ -146,6 +147,57 @@ pytest tests/benchmarks/ --benchmark-only --benchmark-json=results.json
 ```bash
 # Full integration tests
 pytest tests/ -v --cov=src/ --cov-report=html
+```
+
+### Phase 5: Intelligent Orchestration
+
+**Goal**: Claude-powered orchestration with strategy learning.
+
+```
+5.1 Orchestration Schema
+    ├── ExecutionMode (fast/balanced/thorough)
+    ├── ToolAccessLevel (none/repl_only/read_only/full)
+    ├── OrchestrationPlan dataclass
+    └── OrchestrationContext dataclass
+
+5.2 Intelligent Orchestrator
+    ├── Claude Haiku-powered decisions
+    ├── Heuristic fallback
+    ├── Decision caching
+    └── Multi-objective optimization
+
+5.3 User Preferences
+    ├── PreferencesManager class
+    ├── Command parsing (/rlm mode, budget, depth)
+    ├── Persistence (JSON)
+    └── /rlm slash command
+
+5.4 Tool Bridge
+    ├── ToolBridge class
+    ├── Permission enforcement
+    ├── read/bash/grep/glob/ls tools
+    └── Blocked command protection
+
+5.5 Strategy Learning
+    ├── TrajectoryAnalyzer class
+    ├── Strategy detection (peeking, grepping, etc.)
+    ├── StrategyCache with similarity matching
+    └── Feature extraction
+
+5.6 Auto-Activation
+    ├── AutoActivator class
+    ├── Complexity-based decisions
+    ├── Preference integration
+    └── Plan creation from decisions
+```
+
+**Validation Checkpoint**:
+```bash
+# Orchestration and strategy tests
+pytest tests/unit/test_orchestration_schema.py tests/unit/test_intelligent_orchestrator.py -v
+pytest tests/unit/test_strategy_cache.py tests/unit/test_trajectory_analysis.py -v
+pytest tests/integration/test_rlm_orchestration.py -v
+pytest tests/property/test_orchestration_properties.py tests/property/test_strategy_properties.py -v
 ```
 
 ## File Creation Order

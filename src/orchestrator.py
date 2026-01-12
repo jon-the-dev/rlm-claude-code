@@ -504,7 +504,7 @@ async def main():
         print("Or pass --api-key argument")
         return
 
-    # Create mock context for testing with actual project files
+    # Create context with actual project files for CLI testing
     files = {}
     src_dir = os.path.dirname(os.path.abspath(__file__))
     for filename in os.listdir(src_dir):
