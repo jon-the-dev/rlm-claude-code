@@ -184,7 +184,7 @@ uv sync --all-extras
 uv run pytest tests/ -v
 ```
 
-Expected: 700+ tests pass.
+Expected: 1000+ tests pass.
 
 ---
 
@@ -400,6 +400,77 @@ User Query
     │
     ▼
 Trajectory Stream → Final Answer
+```
+
+---
+
+## Advanced Capabilities
+
+### Memory System (SPEC-02, SPEC-03)
+
+RLM includes a persistent memory system for cross-session learning:
+
+```python
+from src import MemoryStore, MemoryEvolution
+
+# Create memory store
+store = MemoryStore(db_path="~/.claude/rlm-memory.db")
+
+# Store facts and experiences
+fact_id = store.create_node(
+    node_type="fact",
+    content="This codebase uses SQLite for persistence",
+    confidence=0.9,
+)
+
+# Memory evolves: task → session → longterm
+evolution = MemoryEvolution(store)
+evolution.consolidate(task_id="current-task")
+evolution.promote(session_id="current-session")
+```
+
+### Reasoning Traces (SPEC-04)
+
+Track decision-making for transparency and debugging:
+
+```python
+from src import ReasoningTraces
+
+traces = ReasoningTraces(store)
+
+# Create goal and decisions
+goal_id = traces.create_goal("Implement user auth")
+decision_id = traces.create_decision(goal_id, "Choose auth strategy")
+
+# Track options and outcomes
+option_id = traces.add_option(decision_id, "Use JWT tokens")
+traces.choose_option(decision_id, option_id)
+
+# Get decision tree
+tree = traces.get_decision_tree(goal_id)
+```
+
+### Enhanced Budget Tracking (SPEC-05)
+
+Granular cost control with alerts:
+
+```python
+from src import EnhancedBudgetTracker, BudgetLimits
+
+tracker = EnhancedBudgetTracker()
+tracker.set_limits(BudgetLimits(
+    max_cost_per_task=5.0,
+    max_recursive_calls=10,
+))
+
+# Check before operations
+allowed, reason = tracker.can_make_llm_call()
+if not allowed:
+    print(f"Blocked: {reason}")
+
+# Get metrics
+metrics = tracker.get_metrics()
+print(f"Cost: ${metrics.total_cost_usd:.2f}")
 ```
 
 ---

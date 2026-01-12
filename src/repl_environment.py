@@ -22,6 +22,7 @@ from RestrictedPython.Guards import (
 from .types import DeferredBatch, DeferredOperation, ExecutionResult, SessionContext
 
 if TYPE_CHECKING:
+    from .memory_store import MemoryStore
     from .recursive_handler import RecursiveREPL
 
 # Subprocess allowlist for sandbox
@@ -114,6 +115,10 @@ class RLMEnvironment:
             "recursive_llm": self._recursive_query,
             "llm": self._recursive_query,  # Shorthand alias
             "llm_batch": self._llm_batch,  # Parallel LLM calls
+            # Advanced REPL functions (SPEC-01)
+            "map_reduce": self._map_reduce,
+            "find_relevant": self._find_relevant,
+            "extract_functions": self._extract_functions,
             # Safe subprocess execution
             "run_tool": self._run_tool,
             # Standard library (safe modules)
@@ -134,6 +139,9 @@ class RLMEnvironment:
         self.pending_operations: list[DeferredOperation] = []
         self.pending_batches: list[DeferredBatch] = []
         self._operation_counter = 0
+
+        # Memory store (initialized via enable_memory())
+        self._memory_store: MemoryStore | None = None
 
     def _build_safe_builtins(self) -> dict[str, Any]:
         """
@@ -492,6 +500,399 @@ class RLMEnvironment:
         self.pending_batches.append(batch)
         return batch
 
+    def _map_reduce(
+        self,
+        content: str,
+        map_prompt: str,
+        reduce_prompt: str,
+        n_chunks: int = 4,
+        model: str = "auto",
+    ) -> DeferredBatch:
+        """
+        Apply map-reduce pattern to large content.
+
+        Implements: Spec SPEC-01.01 through SPEC-01.06
+
+        Args:
+            content: Content to process
+            map_prompt: Prompt to apply to each chunk (can use {chunk} placeholder)
+            reduce_prompt: Prompt to combine map results
+            n_chunks: Number of chunks to split content into
+            model: Model tier to use ("fast", "balanced", "powerful", "auto")
+
+        Returns:
+            DeferredBatch with map operations and reduce metadata
+        """
+        # Validate model parameter (SPEC-01.05)
+        valid_models = {"fast", "balanced", "powerful", "auto"}
+        if model not in valid_models:
+            raise ValueError(f"Invalid model: {model}. Must be one of: {valid_models}")
+
+        # Handle empty content (SPEC-01.06 graceful handling)
+        if not content:
+            content = ""
+
+        # Partition content into n_chunks (SPEC-01.02)
+        chunks = self._partition_content(content, n_chunks)
+
+        # Create batch of map operations (SPEC-01.03)
+        self._operation_counter += 1
+        batch_id = f"mapreduce_{self._operation_counter}"
+
+        batch = DeferredBatch(batch_id=batch_id)
+
+        for _i, chunk in enumerate(chunks):
+            self._operation_counter += 1
+            op_id = f"map_{self._operation_counter}"
+
+            # Format map_prompt with chunk if it has {chunk} placeholder
+            if "{chunk}" in map_prompt:
+                formatted_prompt = map_prompt.format(chunk=chunk)
+            else:
+                formatted_prompt = f"{map_prompt}\n\nContent:\n{chunk}"
+
+            op = DeferredOperation(
+                operation_id=op_id,
+                operation_type="map",
+                query=formatted_prompt,
+                context=chunk,
+                spawn_repl=False,
+            )
+            batch.operations.append(op)
+
+        # Store reduce_prompt in batch metadata for later processing
+        # The orchestrator will use this to create the reduce operation
+        batch.metadata["reduce_prompt"] = reduce_prompt
+        batch.metadata["model"] = model
+
+        self.pending_batches.append(batch)
+        return batch
+
+    def _partition_content(self, content: str, n_chunks: int) -> list[str]:
+        """
+        Partition content into roughly equal chunks.
+
+        Implements: Spec SPEC-01.02
+
+        Args:
+            content: Content to partition
+            n_chunks: Target number of chunks
+
+        Returns:
+            List of content chunks
+        """
+        if not content:
+            return [""]
+
+        # Ensure at least 1 chunk
+        n_chunks = max(1, n_chunks)
+
+        # If content is shorter than n_chunks, reduce n_chunks
+        if len(content) < n_chunks:
+            n_chunks = max(1, len(content))
+
+        # Calculate chunk size
+        chunk_size = len(content) // n_chunks
+        if chunk_size == 0:
+            return [content]
+
+        chunks = []
+        start = 0
+
+        for i in range(n_chunks):
+            if i == n_chunks - 1:
+                # Last chunk gets the remainder
+                chunks.append(content[start:])
+            else:
+                end = start + chunk_size
+                # Try to break at a newline for cleaner chunks
+                newline_pos = content.find("\n", end)
+                if newline_pos != -1 and newline_pos < end + chunk_size // 4:
+                    end = newline_pos + 1
+                chunks.append(content[start:end])
+                start = end
+
+        # Filter out empty chunks but ensure at least one
+        chunks = [c for c in chunks if c] or [""]
+        return chunks
+
+    def _find_relevant(
+        self,
+        content: str,
+        query: str,
+        top_k: int = 5,
+        use_llm_scoring: bool = False,
+    ) -> list[tuple[str, float]]:
+        """
+        Find sections most relevant to query.
+
+        Implements: Spec SPEC-01.07 through SPEC-01.12
+
+        Args:
+            content: Content to search
+            query: Query to find relevant sections for
+            top_k: Number of top results to return
+            use_llm_scoring: Whether to use LLM for scoring (if candidates > top_k * 2)
+
+        Returns:
+            List of (chunk, score) tuples sorted by relevance descending
+        """
+        if not content:
+            return []
+
+        # Partition into ~50-line chunks with 5-line overlap (SPEC-01.08)
+        chunks = self._chunk_with_overlap(content, chunk_lines=50, overlap_lines=5)
+
+        if not chunks:
+            return []
+
+        # Extract query keywords for filtering (SPEC-01.09)
+        query_lower = query.lower()
+        keywords = set(re.findall(r"\b\w{3,}\b", query_lower))
+
+        # Keyword pre-filtering
+        scored_chunks: list[tuple[str, float]] = []
+        for chunk in chunks:
+            chunk_lower = chunk.lower()
+            # Count keyword matches
+            matches = sum(1 for kw in keywords if kw in chunk_lower)
+            if matches > 0 or not keywords:
+                # Score based on keyword density
+                score = matches / max(len(keywords), 1)
+                scored_chunks.append((chunk, score))
+
+        # Sort by score descending
+        scored_chunks.sort(key=lambda x: x[1], reverse=True)
+
+        # Optional LLM scoring if candidates exceed threshold (SPEC-01.10)
+        if use_llm_scoring and len(scored_chunks) > top_k * 2:
+            # Create deferred batch for LLM scoring
+            # For now, we just use keyword scoring
+            # LLM scoring would be implemented by creating a DeferredBatch
+            # and processing results in the orchestrator
+            pass
+
+        # Return top_k results (SPEC-01.11)
+        return scored_chunks[:top_k]
+
+    def _chunk_with_overlap(
+        self, content: str, chunk_lines: int = 50, overlap_lines: int = 5
+    ) -> list[str]:
+        """
+        Split content into chunks with line overlap.
+
+        Args:
+            content: Content to chunk
+            chunk_lines: Target lines per chunk
+            overlap_lines: Lines to overlap between chunks
+
+        Returns:
+            List of overlapping chunks
+        """
+        lines = content.split("\n")
+        if not lines:
+            return []
+
+        chunks = []
+        start = 0
+
+        while start < len(lines):
+            end = min(start + chunk_lines, len(lines))
+            chunk = "\n".join(lines[start:end])
+            if chunk.strip():  # Only add non-empty chunks
+                chunks.append(chunk)
+
+            # Move start forward, accounting for overlap
+            start = end - overlap_lines
+
+            # Ensure we make progress and don't loop forever
+            if end >= len(lines):
+                break  # Reached end of content
+
+        return chunks
+
+    def _extract_functions(
+        self,
+        content: str,
+        language: str = "python",
+    ) -> list[dict[str, Any]]:
+        """
+        Extract function definitions from code.
+
+        Implements: Spec SPEC-01.13 through SPEC-01.17
+
+        Args:
+            content: Source code content
+            language: Programming language ("python", "go", "javascript", "typescript")
+
+        Returns:
+            List of dicts with keys: "name", "signature", "start_line", "end_line"
+        """
+        # Validate language (SPEC-01.14)
+        valid_languages = {"python", "go", "javascript", "typescript"}
+        if language not in valid_languages:
+            raise ValueError(
+                f"Invalid language: {language}. Must be one of: {valid_languages}"
+            )
+
+        # Handle empty/malformed input gracefully (SPEC-01.17)
+        if not content:
+            return []
+
+        # Get regex patterns for the language (SPEC-01.16)
+        patterns = self._get_function_patterns(language)
+
+        functions: list[dict[str, Any]] = []
+        lines = content.split("\n")
+
+        for pattern_info in patterns:
+            pattern = pattern_info["pattern"]
+            for match in re.finditer(pattern, content, re.MULTILINE):
+                try:
+                    name = match.group("name")
+                    signature = match.group(0).strip()
+
+                    # Calculate line numbers
+                    # Note: \s* in pattern can match leading newlines, so we need
+                    # to find where the actual function keyword starts
+                    match_text = match.group(0)
+                    leading_ws = len(match_text) - len(match_text.lstrip())
+                    start_pos = match.start() + leading_ws
+                    start_line = content[:start_pos].count("\n") + 1
+
+                    # Estimate end line (simple heuristic)
+                    end_line = self._estimate_function_end(
+                        lines, start_line - 1, language
+                    )
+
+                    functions.append({
+                        "name": name,
+                        "signature": signature,
+                        "start_line": start_line,
+                        "end_line": end_line,
+                    })
+                except (IndexError, AttributeError):
+                    # Handle malformed input gracefully (SPEC-01.17)
+                    continue
+
+        # Remove duplicates (same function might match multiple patterns)
+        seen = set()
+        unique_functions = []
+        for func in functions:
+            key = (func["name"], func["start_line"])
+            if key not in seen:
+                seen.add(key)
+                unique_functions.append(func)
+
+        # Sort by start_line
+        unique_functions.sort(key=lambda x: x["start_line"])
+        return unique_functions
+
+    def _get_function_patterns(self, language: str) -> list[dict[str, Any]]:
+        """
+        Get regex patterns for function extraction by language.
+
+        Implements: Spec SPEC-01.16
+        """
+        patterns: dict[str, list[dict[str, Any]]] = {
+            "python": [
+                {
+                    "pattern": r"^\s*def\s+(?P<name>\w+)\s*\([^)]*\)\s*(?:->\s*[^:]+)?:",
+                    "type": "function",
+                },
+                {
+                    "pattern": r"^\s*async\s+def\s+(?P<name>\w+)\s*\([^)]*\)\s*(?:->\s*[^:]+)?:",
+                    "type": "async_function",
+                },
+            ],
+            "go": [
+                {
+                    "pattern": r"^func\s+(?P<name>\w+)\s*\([^)]*\)",
+                    "type": "function",
+                },
+                {
+                    "pattern": r"^func\s+\([^)]+\)\s+(?P<name>\w+)\s*\([^)]*\)",
+                    "type": "method",
+                },
+            ],
+            "javascript": [
+                {
+                    "pattern": r"^\s*function\s+(?P<name>\w+)\s*\([^)]*\)",
+                    "type": "function",
+                },
+                {
+                    "pattern": r"^\s*async\s+function\s+(?P<name>\w+)\s*\([^)]*\)",
+                    "type": "async_function",
+                },
+                {
+                    "pattern": r"^\s*(?:const|let|var)\s+(?P<name>\w+)\s*=\s*(?:async\s+)?\([^)]*\)\s*=>",
+                    "type": "arrow_function",
+                },
+                {
+                    "pattern": r"^\s*(?:const|let|var)\s+(?P<name>\w+)\s*=\s*function\s*\([^)]*\)",
+                    "type": "function_expression",
+                },
+            ],
+            "typescript": [
+                {
+                    "pattern": r"^\s*function\s+(?P<name>\w+)\s*(?:<[^>]+>)?\s*\([^)]*\)",
+                    "type": "function",
+                },
+                {
+                    "pattern": r"^\s*async\s+function\s+(?P<name>\w+)\s*(?:<[^>]+>)?\s*\([^)]*\)",
+                    "type": "async_function",
+                },
+                {
+                    "pattern": r"^\s*(?:const|let|var)\s+(?P<name>\w+)\s*(?::\s*[^=]+)?\s*=\s*(?:async\s+)?\([^)]*\)\s*=>",
+                    "type": "arrow_function",
+                },
+                {
+                    "pattern": r"^\s*(?:const|let|var)\s+(?P<name>\w+)\s*(?::\s*[^=]+)?\s*=\s*function\s*\([^)]*\)",
+                    "type": "function_expression",
+                },
+            ],
+        }
+        return patterns.get(language, [])
+
+    def _estimate_function_end(
+        self, lines: list[str], start_idx: int, language: str
+    ) -> int:
+        """
+        Estimate the end line of a function.
+
+        Simple heuristic based on indentation/braces.
+        """
+        if start_idx >= len(lines):
+            return start_idx + 1
+
+        if language == "python":
+            # Find end by indentation
+            start_line = lines[start_idx]
+            base_indent = len(start_line) - len(start_line.lstrip())
+
+            for i in range(start_idx + 1, len(lines)):
+                line = lines[i]
+                if not line.strip():  # Skip empty lines
+                    continue
+                current_indent = len(line) - len(line.lstrip())
+                if current_indent <= base_indent and line.strip():
+                    return i  # Found line at same or lower indent
+            return len(lines)
+        else:
+            # For brace-based languages, count braces
+            brace_count = 0
+            started = False
+
+            for i in range(start_idx, len(lines)):
+                line = lines[i]
+                brace_count += line.count("{") - line.count("}")
+                if "{" in line:
+                    started = True
+                if started and brace_count <= 0:
+                    return i + 1
+
+            return len(lines)
+
     def has_pending_operations(self) -> bool:
         """Check if there are pending async operations to process."""
         return bool(self.pending_operations) or bool(self.pending_batches)
@@ -611,6 +1012,152 @@ class RLMEnvironment:
                 "returncode": -1,
                 "success": False,
             }
+
+    def enable_memory(self, store: MemoryStore) -> None:
+        """
+        Enable memory functions in the REPL environment.
+
+        Implements: Spec SPEC-02.27-31
+
+        Args:
+            store: MemoryStore instance to use for persistence
+        """
+        self._memory_store = store
+
+        # Add memory functions to globals
+        self.globals["memory_query"] = self._memory_query
+        self.globals["memory_add_fact"] = self._memory_add_fact
+        self.globals["memory_add_experience"] = self._memory_add_experience
+        self.globals["memory_get_context"] = self._memory_get_context
+        self.globals["memory_relate"] = self._memory_relate
+
+    def _memory_query(self, query: str, limit: int = 10) -> list[Any]:
+        """
+        Search for nodes matching a query.
+
+        Implements: Spec SPEC-02.27
+
+        Args:
+            query: Search query string
+            limit: Maximum number of results to return
+
+        Returns:
+            List of matching Node objects
+        """
+        if self._memory_store is None:
+            return []
+
+        # Query nodes that contain the search terms
+        all_nodes = self._memory_store.query_nodes(limit=limit * 3)
+
+        # Filter by query terms
+        query_lower = query.lower()
+        keywords = set(query_lower.split())
+
+        matching = []
+        for node in all_nodes:
+            content_lower = node.content.lower()
+            if any(kw in content_lower for kw in keywords):
+                matching.append(node)
+
+        # Sort by confidence descending and limit
+        matching.sort(key=lambda n: n.confidence, reverse=True)
+        return matching[:limit]
+
+    def _memory_add_fact(self, content: str, confidence: float = 0.5) -> str:
+        """
+        Add a fact to memory.
+
+        Implements: Spec SPEC-02.28
+
+        Args:
+            content: Fact content
+            confidence: Confidence score (0.0 to 1.0)
+
+        Returns:
+            Node ID of created fact
+        """
+        if self._memory_store is None:
+            raise RuntimeError("Memory not enabled. Call enable_memory() first.")
+
+        return self._memory_store.create_node(
+            node_type="fact",
+            content=content,
+            confidence=confidence,
+        )
+
+    def _memory_add_experience(
+        self, content: str, outcome: str, success: bool
+    ) -> str:
+        """
+        Add an experience to memory.
+
+        Implements: Spec SPEC-02.29
+
+        Args:
+            content: Experience description
+            outcome: Outcome description
+            success: Whether the experience was successful
+
+        Returns:
+            Node ID of created experience
+        """
+        if self._memory_store is None:
+            raise RuntimeError("Memory not enabled. Call enable_memory() first.")
+
+        return self._memory_store.create_node(
+            node_type="experience",
+            content=content,
+            metadata={"outcome": outcome, "success": success},
+        )
+
+    def _memory_get_context(self, limit: int = 10) -> list[Any]:
+        """
+        Get recent/relevant context nodes.
+
+        Implements: Spec SPEC-02.30
+
+        Args:
+            limit: Maximum number of nodes to return
+
+        Returns:
+            List of Node objects sorted by confidence
+        """
+        if self._memory_store is None:
+            return []
+
+        # Get nodes sorted by confidence (high to low)
+        nodes = self._memory_store.query_nodes(limit=limit * 2)
+
+        # Sort by confidence descending
+        nodes.sort(key=lambda n: n.confidence, reverse=True)
+        return nodes[:limit]
+
+    def _memory_relate(self, label: str, node_id1: str, node_id2: str) -> str:
+        """
+        Create a relation between two nodes.
+
+        Implements: Spec SPEC-02.31
+
+        Args:
+            label: Relation label (e.g., "implies", "causes", "connects")
+            node_id1: First node ID
+            node_id2: Second node ID
+
+        Returns:
+            Edge ID of created relation
+        """
+        if self._memory_store is None:
+            raise RuntimeError("Memory not enabled. Call enable_memory() first.")
+
+        return self._memory_store.create_edge(
+            edge_type="relation",
+            label=label,
+            members=[
+                {"node_id": node_id1, "role": "subject", "position": 0},
+                {"node_id": node_id2, "role": "object", "position": 1},
+            ],
+        )
 
     def get_context_stats(self) -> dict[str, Any]:
         """

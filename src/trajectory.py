@@ -27,6 +27,7 @@ class TrajectoryEventType(Enum):
     ERROR = "error"
     TOOL_USE = "tool_use"
     COST_REPORT = "cost_report"
+    BUDGET_ALERT = "budget_alert"
 
 
 @dataclass
@@ -73,6 +74,7 @@ class TrajectoryRenderer:
         TrajectoryEventType.ERROR: "✗",
         TrajectoryEventType.TOOL_USE: "⚙",
         TrajectoryEventType.COST_REPORT: "💰",
+        TrajectoryEventType.BUDGET_ALERT: "⚠",
     }
 
     LABELS = {
@@ -87,6 +89,7 @@ class TrajectoryRenderer:
         TrajectoryEventType.ERROR: "ERROR",
         TrajectoryEventType.TOOL_USE: "TOOL",
         TrajectoryEventType.COST_REPORT: "COST",
+        TrajectoryEventType.BUDGET_ALERT: "BUDGET",
     }
 
     COLORS = {
@@ -101,6 +104,7 @@ class TrajectoryRenderer:
         TrajectoryEventType.ERROR: "\033[1;31m",  # Bold red
         TrajectoryEventType.TOOL_USE: "\033[36m",  # Cyan
         TrajectoryEventType.COST_REPORT: "\033[1;33m",  # Bold yellow
+        TrajectoryEventType.BUDGET_ALERT: "\033[1;33m",  # Bold yellow
     }
 
     def __init__(self, verbosity: str = "normal", colors: bool = True):

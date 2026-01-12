@@ -182,6 +182,12 @@ class DeferredBatch:
     operations: list[DeferredOperation] = field(default_factory=list)
     resolved: bool = False
     results: list[Any] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def reduce_prompt(self) -> str | None:
+        """Get reduce_prompt from metadata (for map_reduce batches)."""
+        return self.metadata.get("reduce_prompt")
 
     def __repr__(self) -> str:
         return f"<<BATCH:{self.batch_id}>>"

@@ -36,6 +36,16 @@ from .user_preferences import UserPreferences, PreferencesManager
 from .tool_bridge import ToolBridge, ToolPermissions
 from .strategy_cache import StrategyCache
 
+# Memory system (SPEC-02, SPEC-03)
+from .memory_store import MemoryStore, Node, Hyperedge
+from .memory_evolution import MemoryEvolution, ConsolidationResult, PromotionResult, DecayResult
+
+# Reasoning traces (SPEC-04)
+from .reasoning_traces import ReasoningTraces, DecisionNode, DecisionTree
+
+# Enhanced budget tracking (SPEC-05)
+from .enhanced_budget import EnhancedBudgetTracker, EnhancedBudgetMetrics, BudgetLimits, BudgetAlert
+
 __all__ = [
     # Core
     "RLMOrchestrator",
@@ -62,4 +72,21 @@ __all__ = [
     "ToolBridge",
     "ToolPermissions",
     "StrategyCache",
+    # Memory system (SPEC-02, SPEC-03)
+    "MemoryStore",
+    "Node",
+    "Hyperedge",
+    "MemoryEvolution",
+    "ConsolidationResult",
+    "PromotionResult",
+    "DecayResult",
+    # Reasoning traces (SPEC-04)
+    "ReasoningTraces",
+    "DecisionNode",
+    "DecisionTree",
+    # Enhanced budget (SPEC-05)
+    "EnhancedBudgetTracker",
+    "EnhancedBudgetMetrics",
+    "BudgetLimits",
+    "BudgetAlert",
 ]
