@@ -1,41 +1,72 @@
-# RLM-Claude-Code Process Documentation
+# RLM-Claude-Code Documentation
 
-This directory contains process documentation for Claude Code sessions working on the RLM integration. These documents ensure consistent, high-quality implementation across sessions.
+## User Documentation
 
-## Document Index
+| Document | Description |
+|----------|-------------|
+| [Getting Started](../getting-started.md) | Installation, setup, and first steps |
+| [User Guide](../user-guide.md) | Complete usage documentation |
+| [README](../../README.md) | Quick start and overview |
 
-| Document | Purpose |
-|----------|---------|
-| [code-review.md](./code-review.md) | Code review checklist and standards |
-| [implementation.md](./implementation.md) | Implementation workflow and patterns |
-| [testing.md](./testing.md) | Testing strategy and requirements |
-| [architecture.md](./architecture.md) | Architecture decision records |
-| [debugging.md](./debugging.md) | Debugging workflow for RLM issues |
+## Technical Documentation
+
+| Document | Description |
+|----------|-------------|
+| [Specification](../../rlm-claude-code-spec.md) | Full technical specification |
+| [Architecture Decisions](./architecture.md) | ADRs and design rationale |
+| [CLAUDE.md](../../CLAUDE.md) | Claude Code session guide |
+
+## Development Documentation
+
+| Document | Description |
+|----------|-------------|
+| [Implementation](./implementation.md) | Implementation workflow and phases |
+| [Code Review](./code-review.md) | Code review checklist and standards |
+| [Testing](./testing.md) | Testing strategy and requirements |
+| [Debugging](./debugging.md) | Debugging workflow for RLM issues |
+
+---
 
 ## Quick Reference
 
+### For New Users
+
+1. Start with the [Getting Started Guide](../getting-started.md)
+2. Read the [User Guide](../user-guide.md) for detailed usage
+3. Check the [README](../../README.md) for quick reference
+
+### For Contributors
+
+1. Read the [Specification](../../rlm-claude-code-spec.md) first
+2. Check [Implementation](./implementation.md) for current phase
+3. Follow [Code Review](./code-review.md) checklist before PRs
+4. Use [Architecture](./architecture.md) for design decisions
+
 ### Before Starting Work
 
-1. Read the relevant spec section in `rlm-claude-code-spec.md`
-2. Check `docs/process/implementation.md` for current phase
-3. Review any open issues tagged for current phase
-4. Run `uv sync` to ensure dependencies are current
+```bash
+# Ensure dependencies are current
+uv sync --all-extras
+
+# Run tests
+uv run pytest tests/ -v
+
+# Type check
+uv run ty check src/
+```
 
 ### During Implementation
 
 ```bash
 # Type check continuously
-ty check src/
+uv run ty check src/
 
 # Lint before committing
-ruff check src/ --fix
-ruff format src/
+uv run ruff check src/ --fix
+uv run ruff format src/
 
 # Run tests
-pytest tests/ -v
-
-# Validate with hypothesis (if applicable)
-pytest tests/ -v -m hypothesis
+uv run pytest tests/ -v
 ```
 
 ### Before Committing
@@ -44,6 +75,8 @@ pytest tests/ -v -m hypothesis
 2. Ensure all tests pass
 3. Update trajectory examples if behavior changed
 4. Document any new patterns in architecture.md
+
+---
 
 ## Core Principles
 
@@ -54,3 +87,16 @@ pytest tests/ -v -m hypothesis
 3. **Trajectory-First**: When debugging, always capture and analyze the trajectory before making changes.
 
 4. **Type Everything**: All public APIs must have full type annotations validated by `ty`.
+
+---
+
+## Key Paths
+
+| Path | Purpose |
+|------|---------|
+| `src/` | Source code |
+| `tests/` | Test suite |
+| `docs/` | Documentation |
+| `scripts/` | Utility scripts |
+| `hooks/` | Claude Code hooks |
+| `.claude/commands/` | Slash commands |
