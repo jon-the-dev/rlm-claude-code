@@ -196,6 +196,52 @@ from .tree_of_thoughts import (
     ToTConfig,
 )
 
+# Proactive computation (SPEC-06.01-06.05)
+from .proactive_computation import (
+    ComputationAdvisor,
+    ComputationHelper,
+    ComputationSuggestion,
+    ComputationTrigger,
+    DetectionResult,
+)
+
+# LATS orchestration (SPEC-06.10-06.15)
+from .lats_orchestration import (
+    ActionNode,
+    LATSConfig,
+    LATSOrchestrator,
+    LATSPhase,
+    ToolCapability,
+    ToolCapabilityMatrix,
+    ToolPlan,
+    compute_ucb1,
+)
+
+# Learned routing (SPEC-06.20-06.26)
+from .learned_routing import (
+    CascadingRouter,
+    DifficultyEstimate,
+    DifficultyEstimator,
+    LearnedRouter,
+    ModelProfile,
+    OutcomeRecord,
+    QueryFeatures,
+    RouterConfig,
+    RoutingDecision,
+)
+
+# Context enrichment (SPEC-06.30-06.35)
+from .context_enrichment import (
+    CodeTaskEnricher,
+    ContextEnricher,
+    DebugTaskEnricher,
+    EnrichmentConfig,
+    EnrichmentResult,
+    EnrichmentStrategy,
+    IntentClassifier,
+    QueryIntent,
+)
+
 # Trajectory and analysis
 from .trajectory import TrajectoryEvent, TrajectoryRenderer
 from .trajectory_analysis import StrategyType, TrajectoryAnalyzer
@@ -372,4 +418,38 @@ __all__ = [
     "ThoughtNode",
     "ThoughtTree",
     "ToTConfig",
+    # Proactive computation (SPEC-06.01-06.05)
+    "ComputationAdvisor",
+    "ComputationHelper",
+    "ComputationSuggestion",
+    "ComputationTrigger",
+    "DetectionResult",
+    # LATS orchestration (SPEC-06.10-06.15)
+    "ActionNode",
+    "LATSConfig",
+    "LATSOrchestrator",
+    "LATSPhase",
+    "ToolCapability",
+    "ToolCapabilityMatrix",
+    "ToolPlan",
+    "compute_ucb1",
+    # Learned routing (SPEC-06.20-06.26)
+    "CascadingRouter",
+    "DifficultyEstimate",
+    "DifficultyEstimator",
+    "LearnedRouter",
+    "ModelProfile",
+    "OutcomeRecord",
+    "QueryFeatures",
+    "RouterConfig",
+    "RoutingDecision",
+    # Context enrichment (SPEC-06.30-06.35)
+    "CodeTaskEnricher",
+    "ContextEnricher",
+    "DebugTaskEnricher",
+    "EnrichmentConfig",
+    "EnrichmentResult",
+    "EnrichmentStrategy",
+    "IntentClassifier",
+    "QueryIntent",
 ]
