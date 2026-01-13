@@ -1,0 +1,394 @@
+"""
+Tests for modular orchestrator architecture.
+
+@trace SPEC-12.01-12.07
+"""
+
+from __future__ import annotations
+
+import importlib
+import sys
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+
+# --- SPEC-12.01: Module structure ---
+
+
+class TestModuleStructure:
+    """Tests for orchestrator module structure."""
+
+    def test_orchestrator_package_exists(self) -> None:
+        """
+        @trace SPEC-12.01
+        The orchestrator/ package should exist.
+        """
+        from src import orchestrator
+
+        assert orchestrator is not None
+
+    def test_core_module_exists(self) -> None:
+        """
+        @trace SPEC-12.02
+        core.py module should exist with base RLMOrchestrator.
+        """
+        from src.orchestrator import core
+
+        assert hasattr(core, "RLMOrchestrator")
+        assert hasattr(core, "OrchestrationState")
+
+    def test_intelligent_module_exists(self) -> None:
+        """
+        @trace SPEC-12.03
+        intelligent.py module should exist with IntelligentOrchestrator.
+        """
+        from src.orchestrator import intelligent
+
+        assert hasattr(intelligent, "IntelligentOrchestrator")
+        assert hasattr(intelligent, "OrchestratorConfig")
+
+    def test_async_executor_module_exists(self) -> None:
+        """
+        @trace SPEC-12.04
+        async_executor.py module should exist with AsyncRLMOrchestrator.
+        """
+        from src.orchestrator import async_executor
+
+        assert hasattr(async_executor, "AsyncExecutor")
+        assert hasattr(async_executor, "AsyncRLMOrchestrator")
+
+    def test_checkpointing_module_exists(self) -> None:
+        """
+        @trace SPEC-12.05
+        checkpointing.py module should exist with checkpoint support.
+        """
+        from src.orchestrator import checkpointing
+
+        assert hasattr(checkpointing, "RLMCheckpoint")
+        assert hasattr(checkpointing, "CheckpointingOrchestrator")
+
+    def test_steering_module_exists(self) -> None:
+        """
+        @trace SPEC-12.06
+        steering.py module should exist with user interaction support.
+        """
+        from src.orchestrator import steering
+
+        assert hasattr(steering, "SteeringPoint")
+        assert hasattr(steering, "InteractiveOrchestrator")
+
+
+# --- SPEC-12.07: Backward compatibility ---
+
+
+class TestBackwardCompatibility:
+    """Tests for backward compatibility via __init__.py exports."""
+
+    def test_rlm_orchestrator_importable_from_package(self) -> None:
+        """
+        @trace SPEC-12.07
+        RLMOrchestrator should be importable from orchestrator package.
+        """
+        from src.orchestrator import RLMOrchestrator
+
+        assert RLMOrchestrator is not None
+
+    def test_intelligent_orchestrator_importable_from_package(self) -> None:
+        """
+        @trace SPEC-12.07
+        IntelligentOrchestrator should be importable from orchestrator package.
+        """
+        from src.orchestrator import IntelligentOrchestrator
+
+        assert IntelligentOrchestrator is not None
+
+    def test_async_classes_importable_from_package(self) -> None:
+        """
+        @trace SPEC-12.07
+        Async classes should be importable from orchestrator package.
+        """
+        from src.orchestrator import AsyncExecutor, AsyncRLMOrchestrator
+
+        assert AsyncExecutor is not None
+        assert AsyncRLMOrchestrator is not None
+
+    def test_old_import_paths_still_work(self) -> None:
+        """
+        @trace SPEC-12.07
+        Old import paths from src module should still work.
+        """
+        # These should still work via src/__init__.py re-exports
+        from src import (
+            AsyncExecutor,
+            AsyncRLMOrchestrator,
+            IntelligentOrchestrator,
+            RLMOrchestrator,
+        )
+
+        assert RLMOrchestrator is not None
+        assert IntelligentOrchestrator is not None
+        assert AsyncExecutor is not None
+        assert AsyncRLMOrchestrator is not None
+
+    def test_orchestration_state_importable(self) -> None:
+        """
+        @trace SPEC-12.07
+        OrchestrationState should be importable from package.
+        """
+        from src.orchestrator import OrchestrationState
+
+        assert OrchestrationState is not None
+
+    def test_orchestrator_config_importable(self) -> None:
+        """
+        @trace SPEC-12.07
+        OrchestratorConfig should be importable from package.
+        """
+        from src.orchestrator import OrchestratorConfig
+
+        assert OrchestratorConfig is not None
+
+
+# --- No circular dependencies ---
+
+
+class TestNoCircularDependencies:
+    """Tests for no circular imports between modules."""
+
+    def test_core_imports_independently(self) -> None:
+        """Core module should import without other orchestrator modules."""
+        # Clear any cached imports
+        modules_to_clear = [k for k in sys.modules.keys() if "orchestrator" in k.lower()]
+        for mod in modules_to_clear:
+            if "test" not in mod:
+                sys.modules.pop(mod, None)
+
+        # Import core directly
+        from src.orchestrator import core
+
+        assert core is not None
+
+    def test_intelligent_imports_independently(self) -> None:
+        """Intelligent module should import without circular issues."""
+        from src.orchestrator import intelligent
+
+        assert intelligent is not None
+
+    def test_async_executor_imports_independently(self) -> None:
+        """Async executor module should import without circular issues."""
+        from src.orchestrator import async_executor
+
+        assert async_executor is not None
+
+
+# --- Module testability ---
+
+
+class TestModuleTestability:
+    """Tests for independent module testability."""
+
+    def test_orchestration_state_creatable(self) -> None:
+        """OrchestrationState should be independently testable."""
+        from src.orchestrator.core import OrchestrationState
+
+        state = OrchestrationState()
+        assert state.depth == 0
+        assert state.turn == 0
+        assert state.max_turns == 20
+        assert state.final_answer is None
+
+    def test_orchestrator_config_creatable(self) -> None:
+        """OrchestratorConfig should be independently testable."""
+        from src.orchestrator.intelligent import OrchestratorConfig
+
+        config = OrchestratorConfig()
+        assert config.orchestrator_model == "haiku"
+        assert config.use_fallback is True
+
+    def test_async_executor_creatable(self) -> None:
+        """AsyncExecutor should be independently testable."""
+        from src.orchestrator.async_executor import AsyncExecutor
+
+        executor = AsyncExecutor(max_concurrency=5)
+        assert executor.max_concurrency == 5
+
+
+# --- SPEC-12.05: Checkpointing ---
+
+
+class TestCheckpointing:
+    """Tests for checkpointing module functionality."""
+
+    def test_checkpoint_dataclass_structure(self) -> None:
+        """
+        @trace SPEC-12.05
+        RLMCheckpoint should capture required state.
+        """
+        from src.orchestrator.checkpointing import RLMCheckpoint
+
+        checkpoint = RLMCheckpoint(
+            session_id="test-session",
+            depth=1,
+            turn=5,
+            messages=[{"role": "user", "content": "test"}],
+            repl_state={"x": 10},
+            trajectory_events=[],
+        )
+
+        assert checkpoint.session_id == "test-session"
+        assert checkpoint.depth == 1
+        assert checkpoint.turn == 5
+        assert checkpoint.messages == [{"role": "user", "content": "test"}]
+        assert checkpoint.repl_state == {"x": 10}
+
+    def test_checkpoint_serialization(self) -> None:
+        """
+        @trace SPEC-12.05
+        Checkpoints should be serializable to JSON.
+        """
+        from src.orchestrator.checkpointing import RLMCheckpoint
+
+        checkpoint = RLMCheckpoint(
+            session_id="test",
+            depth=0,
+            turn=1,
+            messages=[],
+            repl_state={},
+            trajectory_events=[],
+        )
+
+        # Should have to_dict method
+        data = checkpoint.to_dict()
+        assert isinstance(data, dict)
+        assert data["session_id"] == "test"
+
+    def test_checkpoint_deserialization(self) -> None:
+        """
+        @trace SPEC-12.05
+        Checkpoints should be deserializable from JSON.
+        """
+        from src.orchestrator.checkpointing import RLMCheckpoint
+
+        data = {
+            "session_id": "test",
+            "depth": 0,
+            "turn": 1,
+            "messages": [],
+            "repl_state": {},
+            "trajectory_events": [],
+        }
+
+        checkpoint = RLMCheckpoint.from_dict(data)
+        assert checkpoint.session_id == "test"
+
+
+# --- SPEC-12.06: Steering ---
+
+
+class TestSteering:
+    """Tests for steering module functionality."""
+
+    def test_steering_point_dataclass(self) -> None:
+        """
+        @trace SPEC-12.06
+        SteeringPoint should capture steering decision points.
+        """
+        from src.orchestrator.steering import SteeringPoint
+
+        point = SteeringPoint(
+            turn=5,
+            depth=1,
+            decision_type="continue_or_stop",
+            options=["continue", "stop", "adjust_depth"],
+            context="Current analysis is 60% complete",
+        )
+
+        assert point.turn == 5
+        assert point.depth == 1
+        assert "continue" in point.options
+
+    def test_auto_steering_policy(self) -> None:
+        """
+        @trace SPEC-12.06
+        Auto-steering should provide default decisions.
+        """
+        from src.orchestrator.steering import AutoSteeringPolicy
+
+        policy = AutoSteeringPolicy()
+        # Policy should be configurable
+        assert policy is not None
+
+    def test_interactive_orchestrator_extends_base(self) -> None:
+        """
+        @trace SPEC-12.06
+        InteractiveOrchestrator should extend base functionality.
+        """
+        from src.orchestrator.steering import InteractiveOrchestrator
+
+        # Should be importable without errors
+        assert InteractiveOrchestrator is not None
+
+
+# --- Integration tests ---
+
+
+class TestModularOrchestratorIntegration:
+    """Integration tests for modular orchestrator."""
+
+    def test_all_modules_work_together(self) -> None:
+        """All orchestrator modules should work together."""
+        from src.orchestrator import (
+            AsyncExecutor,
+            AsyncRLMOrchestrator,
+            IntelligentOrchestrator,
+            OrchestrationState,
+            OrchestratorConfig,
+            RLMOrchestrator,
+        )
+
+        # Create instances without errors
+        state = OrchestrationState()
+        config = OrchestratorConfig()
+        executor = AsyncExecutor()
+
+        assert state is not None
+        assert config is not None
+        assert executor is not None
+
+    def test_checkpointing_with_orchestrator(self) -> None:
+        """Checkpointing should integrate with orchestrator state."""
+        from src.orchestrator.checkpointing import CheckpointingOrchestrator, RLMCheckpoint
+        from src.orchestrator.core import OrchestrationState
+
+        # Create state
+        state = OrchestrationState(depth=1, turn=3)
+
+        # Should be able to create checkpoint from state
+        checkpoint = RLMCheckpoint(
+            session_id="integration-test",
+            depth=state.depth,
+            turn=state.turn,
+            messages=state.messages,
+            repl_state={},
+            trajectory_events=[],
+        )
+
+        assert checkpoint.depth == 1
+        assert checkpoint.turn == 3
+
+    def test_steering_with_orchestrator(self) -> None:
+        """Steering should integrate with orchestrator."""
+        from src.orchestrator.steering import SteeringPoint
+
+        # Create steering point
+        point = SteeringPoint(
+            turn=10,
+            depth=2,
+            decision_type="continue_or_stop",
+            options=["continue", "stop"],
+            context="Test",
+        )
+
+        assert point.turn == 10

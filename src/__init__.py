@@ -13,8 +13,8 @@ Implements intelligent orchestration with:
 
 __version__ = "0.2.0"
 
-# Async execution (SPEC-08.01-08.06)
-from .async_executor import (
+# Async execution (SPEC-08.01-08.06) - from orchestrator package
+from .orchestrator import (
     AsyncExecutor,
     AsyncRLMOrchestrator,
     BudgetChecker,
@@ -95,7 +95,8 @@ from .enhanced_budget import (
     EnhancedBudgetMetrics,
     EnhancedBudgetTracker,
 )
-from .intelligent_orchestrator import IntelligentOrchestrator
+# Intelligent orchestration - from orchestrator package
+from .orchestrator import IntelligentOrchestrator, OrchestratorConfig
 from .local_orchestrator import RECOMMENDED_CONFIGS, LocalModelConfig, LocalOrchestrator
 from .memory_evolution import ConsolidationResult, DecayResult, MemoryEvolution, PromotionResult
 
@@ -120,7 +121,18 @@ from .orchestration_telemetry import (
     TelemetryDecisionLog,
     TelemetryReport,
 )
-from .orchestrator import RLMOrchestrator
+# Core orchestration - from orchestrator package
+from .orchestrator import OrchestrationState, RLMOrchestrator
+
+# Checkpointing and steering - from orchestrator package (SPEC-12.05-12.06)
+from .orchestrator import (
+    AutoSteeringPolicy,
+    CheckpointingOrchestrator,
+    InteractiveOrchestrator,
+    RLMCheckpoint,
+    SteeringDecision,
+    SteeringPoint,
+)
 
 # Prompt caching (SPEC-08.10-08.15)
 from .prompt_caching import (
@@ -193,9 +205,19 @@ __all__ = [
     "PartialFailureResult",
     "SpeculativeExecution",
     "SpeculativeResult",
-    # Core
+    # Core orchestration
     "RLMOrchestrator",
+    "OrchestrationState",
     "IntelligentOrchestrator",
+    "OrchestratorConfig",
+    # Checkpointing (SPEC-12.05)
+    "CheckpointingOrchestrator",
+    "RLMCheckpoint",
+    # Steering (SPEC-12.06)
+    "AutoSteeringPolicy",
+    "InteractiveOrchestrator",
+    "SteeringDecision",
+    "SteeringPoint",
     "AutoActivator",
     "check_auto_activation",
     # Compute allocation (SPEC-07.10-07.15)
