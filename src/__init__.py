@@ -40,6 +40,16 @@ from .compute_allocation import (
 # Complexity and routing
 from .complexity_classifier import should_activate_rlm
 
+# Confidence-weighted synthesis (SPEC-10.01-10.06)
+from .confidence_synthesis import (
+    ConfidenceEstimator,
+    ConfidenceFlags,
+    RecursiveResult,
+    SynthesisResult,
+    SynthesisStrategy,
+    WeightedSynthesizer,
+)
+
 # Context indexing (SPEC-01.04 - Phase 4)
 from .context_index import ContextIndex, FileIndex, IndexStats
 
@@ -208,6 +218,13 @@ __all__ = [
     # Complexity
     "should_activate_rlm",
     "ExecutionMode",
+    # Confidence-weighted synthesis (SPEC-10.01-10.06)
+    "ConfidenceEstimator",
+    "ConfidenceFlags",
+    "RecursiveResult",
+    "SynthesisResult",
+    "SynthesisStrategy",
+    "WeightedSynthesizer",
     "OrchestrationPlan",
     "ToolAccessLevel",
     # Local orchestration
