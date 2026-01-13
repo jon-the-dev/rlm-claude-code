@@ -43,6 +43,16 @@ from .context_manager import (
     externalize_context,
 )
 
+# Execution guarantees (SPEC-10.10-10.15)
+from .execution_guarantees import (
+    CheckResult,
+    ExecutionGuarantees,
+    GracefulDegradationPlan,
+    GuaranteeChecker,
+    GuaranteeViolation,
+    ViolationType,
+)
+
 # Enhanced budget tracking (SPEC-05)
 from .enhanced_budget import (
     AdaptiveDepthRecommendation,
@@ -199,6 +209,13 @@ __all__ = [
     "DecisionNode",
     "DecisionTree",
     "EvidenceScore",
+    # Execution guarantees (SPEC-10.10-10.15)
+    "CheckResult",
+    "ExecutionGuarantees",
+    "GracefulDegradationPlan",
+    "GuaranteeChecker",
+    "GuaranteeViolation",
+    "ViolationType",
     # Enhanced budget (SPEC-05)
     "EnhancedBudgetTracker",
     "EnhancedBudgetMetrics",
