@@ -53,6 +53,16 @@ from .context_manager import (
     externalize_context,
 )
 
+# Embedding retrieval (SPEC-09.01-09.07)
+from .embedding_retrieval import (
+    EmbeddingConfig,
+    EmbeddingProvider,
+    EmbeddingStore,
+    HybridRetriever,
+    HybridSearchResult,
+    MockEmbeddingProvider,
+)
+
 # Execution guarantees (SPEC-10.10-10.15)
 from .execution_guarantees import (
     CheckResult,
@@ -237,6 +247,13 @@ __all__ = [
     "DecisionNode",
     "DecisionTree",
     "EvidenceScore",
+    # Embedding retrieval (SPEC-09.01-09.07)
+    "EmbeddingConfig",
+    "EmbeddingProvider",
+    "EmbeddingStore",
+    "HybridRetriever",
+    "HybridSearchResult",
+    "MockEmbeddingProvider",
     # Execution guarantees (SPEC-10.10-10.15)
     "CheckResult",
     "ExecutionGuarantees",
