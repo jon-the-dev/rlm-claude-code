@@ -242,6 +242,20 @@ from .context_enrichment import (
     QueryIntent,
 )
 
+# Continuous learning (SPEC-06.40-06.45)
+from .continuous_learning import (
+    ContinuousLearner,
+    ExecutionOutcome,
+    LearnerConfig,
+    LearnerState,
+    LearningSignal,
+    MetaLearner,
+    OutcomeRecorder,
+    PredictionRecord,
+    SignalExtractor,
+    SignalType,
+)
+
 # Trajectory and analysis
 from .trajectory import TrajectoryEvent, TrajectoryRenderer
 from .trajectory_analysis import StrategyType, TrajectoryAnalyzer
@@ -452,4 +466,15 @@ __all__ = [
     "EnrichmentStrategy",
     "IntentClassifier",
     "QueryIntent",
+    # Continuous learning (SPEC-06.40-06.45)
+    "ContinuousLearner",
+    "ExecutionOutcome",
+    "LearnerConfig",
+    "LearnerState",
+    "LearningSignal",
+    "MetaLearner",
+    "OutcomeRecorder",
+    "PredictionRecord",
+    "SignalExtractor",
+    "SignalType",
 ]
