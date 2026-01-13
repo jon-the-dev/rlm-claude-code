@@ -299,6 +299,19 @@ from .context_compression import (
     TwoStageCompressor,
 )
 
+# Cross-session memory promotion (SPEC-09.10-09.15)
+from .cross_session_promotion import (
+    AccessRecord,
+    CrossSessionPromoter,
+    CrossSessionTracker,
+    PromotionCandidate,
+    PromotionConfig,
+    PromotionCriteria,
+    PromotionDecision,
+    PromotionLog,
+    PromotionReason,
+)
+
 # Trajectory and analysis
 from .trajectory import TrajectoryEvent, TrajectoryRenderer
 from .trajectory_analysis import StrategyType, TrajectoryAnalyzer
@@ -554,4 +567,14 @@ __all__ = [
     "KeyInfoPreserver",
     "RelevanceScorer",
     "TwoStageCompressor",
+    # Cross-session memory promotion (SPEC-09.10-09.15)
+    "AccessRecord",
+    "CrossSessionPromoter",
+    "CrossSessionTracker",
+    "PromotionCandidate",
+    "PromotionConfig",
+    "PromotionCriteria",
+    "PromotionDecision",
+    "PromotionLog",
+    "PromotionReason",
 ]
