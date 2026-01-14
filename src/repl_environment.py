@@ -316,12 +316,16 @@ class RLMEnvironment:
                     compiled = compile(code, "<repl>", "exec")
                     exec(compiled, self.globals, self.locals)
 
-            # Use eval result if we got one, otherwise check for _ or print output
+            # Use eval result if we got one, otherwise check for _ variable
             output = result
             if output is None:
                 output = self.locals.get("_")
-            if output is None and output_capture:
-                output = "\n".join(output_capture)
+
+            # Capture stdout separately
+            stdout = "\n".join(output_capture) if output_capture else ""
+
+            # For backward compatibility: if no return value, use stdout as output
+            final_output = output if output is not None else (stdout or None)
 
             execution_time = (time.time() - start_time) * 1000
 
@@ -330,33 +334,38 @@ class RLMEnvironment:
                 {
                     "code": code,
                     "success": True,
-                    "output": output,
+                    "output": final_output,
+                    "stdout": stdout,
                     "time_ms": execution_time,
                 }
             )
 
             return ExecutionResult(
                 success=True,
-                output=output,
+                output=final_output,
+                stdout=stdout,
                 execution_time_ms=execution_time,
             )
 
         except Exception as e:
             execution_time = (time.time() - start_time) * 1000
 
+            # Enhance error message with suggestions
+            enhanced_error = self._enhance_error(e, code)
+
             # Record in history
             self.history.append(
                 {
                     "code": code,
                     "success": False,
-                    "error": str(e),
+                    "error": enhanced_error,
                     "time_ms": execution_time,
                 }
             )
 
             return ExecutionResult(
                 success=False,
-                error=str(e),
+                error=enhanced_error,
                 execution_time_ms=execution_time,
             )
         finally:
@@ -367,6 +376,115 @@ class RLMEnvironment:
         output = " ".join(str(arg) for arg in args)
         if hasattr(self, "_print_buffer"):
             self._print_buffer.append(output)
+
+    def _enhance_error(self, error: Exception, code: str) -> str:
+        """
+        Enhance error message with helpful suggestions.
+
+        Implements: SPEC-12.12 Enhanced Error Messages
+
+        Args:
+            error: The exception that occurred
+            code: The code that caused the error
+
+        Returns:
+            Enhanced error message with suggestions
+        """
+        error_type = type(error).__name__
+        error_msg = str(error)
+        suggestions: list[str] = []
+
+        if isinstance(error, NameError):
+            # Extract undefined name and suggest similar ones
+            undefined = self._extract_undefined_name(error_msg)
+            if undefined:
+                similar = self._find_similar_names(undefined)
+                if similar:
+                    suggestions.append(f"Did you mean: {', '.join(similar[:3])}?")
+            suggestions.append(f"Available: {self._list_available_names()}")
+
+        elif isinstance(error, KeyError):
+            # Suggest available keys
+            key = str(error).strip("'\"")
+            dict_keys = self._find_dict_keys_in_code(code)
+            if dict_keys:
+                suggestions.append(f"Available keys: {', '.join(dict_keys[:10])}")
+            suggestions.append("Use .keys() to list all available keys")
+
+        elif isinstance(error, AttributeError):
+            # Suggest available methods
+            obj_type = self._extract_object_type(error_msg)
+            if obj_type:
+                suggestions.append(f"Check available methods with dir({obj_type})")
+            suggestions.append("Common helpers: peek(), search(), llm(), map_reduce()")
+
+        elif isinstance(error, TypeError):
+            suggestions.append("Check function signature and argument types")
+            suggestions.append("Common helpers: peek(var, start, end), search(var, pattern)")
+
+        elif isinstance(error, IndexError):
+            suggestions.append("Use len() to check collection size first")
+            suggestions.append("Use peek(var, start, end) for safe slicing")
+
+        # Build enhanced message
+        result = f"{error_type}: {error_msg}"
+        if suggestions:
+            result += "\n\nSuggestions:\n• " + "\n• ".join(suggestions)
+
+        return result
+
+    def _extract_undefined_name(self, error_msg: str) -> str | None:
+        """Extract the undefined name from a NameError message."""
+        # Pattern: "name 'foo' is not defined"
+        match = re.search(r"name ['\"](\w+)['\"] is not defined", error_msg)
+        return match.group(1) if match else None
+
+    def _find_similar_names(self, name: str, threshold: float = 0.6) -> list[str]:
+        """Find similar names in the environment."""
+        from difflib import SequenceMatcher
+
+        all_names = set()
+        # Collect all available names
+        all_names.update(self.globals.get("working_memory", {}).keys())
+        all_names.update(k for k in self.globals.keys() if not k.startswith("_"))
+        all_names.update(self.locals.keys())
+
+        # Find similar names
+        similar = []
+        for candidate in all_names:
+            ratio = SequenceMatcher(None, name.lower(), candidate.lower()).ratio()
+            if ratio >= threshold and candidate != name:
+                similar.append((ratio, candidate))
+
+        # Sort by similarity and return names
+        similar.sort(reverse=True)
+        return [name for _, name in similar]
+
+    def _list_available_names(self) -> str:
+        """List commonly available names in the environment."""
+        names = ["files", "conversation", "tool_outputs", "working_memory"]
+        names.extend(["peek", "search", "llm", "map_reduce", "find_relevant"])
+        wm_keys = list(self.globals.get("working_memory", {}).keys())[:5]
+        if wm_keys:
+            names.extend(wm_keys)
+        return ", ".join(names[:15])
+
+    def _find_dict_keys_in_code(self, code: str) -> list[str]:
+        """Find dictionary keys that might be relevant to the error."""
+        keys: list[str] = []
+        # Check if accessing 'files'
+        if "files" in code:
+            keys.extend(list(self.globals.get("files", {}).keys())[:10])
+        # Check working_memory
+        if "working_memory" in code:
+            keys.extend(list(self.globals.get("working_memory", {}).keys())[:10])
+        return keys
+
+    def _extract_object_type(self, error_msg: str) -> str | None:
+        """Extract object type from AttributeError message."""
+        # Pattern: "'str' object has no attribute 'foo'"
+        match = re.search(r"['\"](\w+)['\"] object has no attribute", error_msg)
+        return match.group(1) if match else None
 
     def _peek(self, var: Any, start: int = 0, end: int = 1000) -> Any:
         """

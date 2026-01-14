@@ -116,12 +116,67 @@ class ActivationDecision(BaseModel):
 
 @dataclass
 class ExecutionResult:
-    """Result of REPL code execution."""
+    """
+    Result of REPL code execution.
+
+    Implements: SPEC-12.11 Better Execution Result Formatting
+
+    Attributes:
+        success: Whether execution completed without error
+        output: Return value from expression (None for statements)
+        error: Error message if execution failed
+        execution_time_ms: Time taken to execute
+        stdout: Captured print() output (separate from return value)
+        output_truncated: Whether output was truncated
+        original_length: Original length before truncation (if truncated)
+    """
 
     success: bool
     output: Any = None
     error: str | None = None
     execution_time_ms: float = 0.0
+    stdout: str = ""
+    output_truncated: bool = False
+    original_length: int | None = None
+
+    def format_output(self, max_length: int = 2000) -> str:
+        """
+        Format the output for display.
+
+        Pretty-prints dicts/lists with indentation, truncates long output.
+
+        Args:
+            max_length: Maximum length before truncation
+
+        Returns:
+            Formatted string representation of output
+        """
+        import json
+
+        if self.output is None:
+            if self.stdout:
+                return self.stdout
+            return ""
+
+        # Pretty-print dicts and lists
+        if isinstance(self.output, (dict, list)):
+            try:
+                formatted = json.dumps(self.output, indent=2, default=str)
+            except (TypeError, ValueError):
+                formatted = repr(self.output)
+        else:
+            formatted = repr(self.output)
+
+        # Truncate if needed
+        if len(formatted) > max_length:
+            truncated = formatted[:max_length]
+            return f"{truncated}\n... (truncated, {len(formatted)} chars total)"
+
+        # Append stdout if both exist
+        if self.stdout and self.output is not None:
+            return f"{formatted}\n\n[stdout]\n{self.stdout}"
+
+        return formatted
 
 
 class VerificationResult(BaseModel):
