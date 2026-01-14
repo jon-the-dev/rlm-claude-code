@@ -14,6 +14,7 @@ from src.intelligent_orchestrator import (
     ORCHESTRATOR_SYSTEM_PROMPT,
 )
 from src.orchestration_schema import (
+    DecisionConfidence,
     ExecutionMode,
     OrchestrationContext,
     OrchestrationPlan,
@@ -1002,3 +1003,170 @@ class TestImprovedHeuristicMode:
         assert "heuristics_triggered" in plan.metadata
         assert isinstance(plan.metadata["heuristics_triggered"], list)
         assert len(plan.metadata["heuristics_triggered"]) > 0
+
+
+class TestHeuristicConfidenceComputation:
+    """Tests for per-dimension confidence computation in heuristic orchestrator (SPEC-12.07)."""
+
+    @pytest.fixture
+    def orchestrator(self):
+        """Create an orchestrator instance for testing."""
+        config = OrchestratorConfig(use_fallback=True)
+        return IntelligentOrchestrator(config)
+
+    def test_multiple_signals_high_activation_confidence(self, orchestrator):
+        """Multiple high-value signals yield high activation confidence."""
+        context = OrchestrationContext(
+            query="why is there a race condition causing intermittent failures",
+            context_tokens=10000,
+        )
+
+        plan = orchestrator._heuristic_orchestrate(
+            "why is there a race condition causing intermittent failures", context
+        )
+
+        # Multiple signals: discovery_required + debugging_deep
+        assert plan.decision_confidence.activation >= 0.9
+
+    def test_single_signal_medium_activation_confidence(self, orchestrator):
+        """Single high-value signal yields medium-high activation confidence."""
+        context = OrchestrationContext(
+            query="how does authentication work in this codebase",
+            context_tokens=10000,
+        )
+
+        plan = orchestrator._heuristic_orchestrate(
+            "how does authentication work in this codebase", context
+        )
+
+        # Single signal: discovery_required
+        assert 0.7 <= plan.decision_confidence.activation <= 0.8
+
+    def test_model_override_high_model_confidence(self, orchestrator):
+        """Signal-based model override yields high model tier confidence."""
+        context = OrchestrationContext(
+            query="design the API architecture for the new microservice",
+            context_tokens=10000,
+        )
+
+        plan = orchestrator._heuristic_orchestrate(
+            "design the API architecture for the new microservice", context
+        )
+
+        # architectural signal triggers model override
+        assert plan.decision_confidence.model_tier >= 0.85
+
+    def test_default_model_medium_confidence(self, orchestrator):
+        """Default model selection yields medium confidence."""
+        context = OrchestrationContext(
+            query="how does authentication work in this codebase",
+            context_tokens=10000,
+        )
+
+        plan = orchestrator._heuristic_orchestrate(
+            "how does authentication work in this codebase", context
+        )
+
+        # discovery_required doesn't trigger model override
+        assert plan.decision_confidence.model_tier < 0.85
+
+    def test_debug_signal_high_depth_confidence(self, orchestrator):
+        """Debugging signal yields high depth confidence."""
+        context = OrchestrationContext(
+            query="why is there a race condition in the authentication",
+            context_tokens=10000,
+        )
+
+        plan = orchestrator._heuristic_orchestrate(
+            "why is there a race condition in the authentication", context
+        )
+
+        # debugging_deep signal
+        assert plan.decision_confidence.depth >= 0.85
+
+    def test_large_context_lower_depth_confidence(self, orchestrator):
+        """Large context adjustment yields lower depth confidence."""
+        context = OrchestrationContext(
+            query="how does authentication work",
+            context_tokens=150000,  # Large context
+        )
+
+        plan = orchestrator._heuristic_orchestrate("how does authentication work", context)
+
+        # Large context triggers depth adjustment with lower confidence
+        assert plan.decision_confidence.depth <= 0.7
+
+    def test_prior_confusion_lowest_depth_confidence(self, orchestrator):
+        """Prior confusion signal yields lowest depth confidence when no stronger signal."""
+        # Use a query that triggers RLM but not debugging_deep or architectural
+        # (which would override the prior confusion depth confidence)
+        context = OrchestrationContext(
+            query="find all usages of this function",
+            context_tokens=10000,
+            complexity_signals={"previous_turn_was_confused": True},
+        )
+
+        plan = orchestrator._heuristic_orchestrate("find all usages of this function", context)
+
+        # Prior confusion indicates uncertainty (when not overridden by debug/arch signals)
+        assert plan.decision_confidence.depth <= 0.6
+        assert "depth_adjust:prior_confusion" in plan.metadata["heuristics_triggered"]
+
+    def test_strategy_signal_high_strategy_confidence(self, orchestrator):
+        """Explicit strategy signal yields high strategy confidence."""
+        context = OrchestrationContext(
+            query="why is there an intermittent race condition failure",
+            context_tokens=10000,
+        )
+
+        plan = orchestrator._heuristic_orchestrate(
+            "why is there an intermittent race condition failure", context
+        )
+
+        # debugging_deep triggers strategy:recursive_debug
+        assert plan.decision_confidence.strategy >= 0.8
+
+    def test_continuation_context_strategy_confidence(self, orchestrator):
+        """Continuation context yields medium-high strategy confidence."""
+        context = OrchestrationContext(
+            query="continue with the previous task",
+            context_tokens=10000,
+            complexity_signals={"task_is_continuation": True},
+        )
+
+        plan = orchestrator._heuristic_orchestrate("continue with the previous task", context)
+
+        # Continuation from context
+        assert plan.decision_confidence.strategy >= 0.7
+
+    def test_confidence_serialized_in_plan(self, orchestrator):
+        """Decision confidence is properly serialized in plan dict."""
+        context = OrchestrationContext(
+            query="design the API for a new microservice",
+            context_tokens=10000,
+        )
+
+        plan = orchestrator._heuristic_orchestrate(
+            "design the API for a new microservice", context
+        )
+
+        data = plan.to_dict()
+
+        assert "decision_confidence" in data
+        assert "activation" in data["decision_confidence"]
+        assert "model_tier" in data["decision_confidence"]
+        assert "depth" in data["decision_confidence"]
+        assert "strategy" in data["decision_confidence"]
+
+    def test_bypass_plan_uses_default_high_confidence(self, orchestrator):
+        """Bypass plans should still have default confidence (from factory)."""
+        context = OrchestrationContext(
+            query="ok",
+            context_tokens=1000,
+        )
+
+        plan = orchestrator._heuristic_orchestrate("ok", context)
+
+        # Bypass uses DecisionConfidence.high()
+        assert plan.decision_confidence.activation == 0.9
+        assert plan.decision_confidence.model_tier == 0.9

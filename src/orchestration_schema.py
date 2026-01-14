@@ -71,6 +71,98 @@ class ExecutionStrategy(Enum):
     CONTINUATION = "continuation"  # JTBD-6: Resume with memory context
 
 
+@dataclass
+class DecisionConfidence:
+    """
+    Per-dimension confidence scores for orchestration decisions.
+
+    Implements: SPEC-12.07 - Confidence Intervals for OODA Decide Phase
+
+    Each dimension indicates how certain the orchestrator is about that
+    specific decision. Low confidence can trigger:
+    - User confirmation prompts
+    - Conservative fallbacks (cheaper model, lower depth)
+    - Adaptive execution (start conservative, escalate if needed)
+    - Telemetry logging for improving heuristics over time
+
+    Attributes:
+        activation: Confidence in activate_rlm decision (0.0-1.0)
+        model_tier: Confidence in model tier selection (0.0-1.0)
+        depth: Confidence in depth budget choice (0.0-1.0)
+        strategy: Confidence in execution strategy selection (0.0-1.0)
+
+    Example:
+        >>> conf = DecisionConfidence(activation=0.9, model_tier=0.6)
+        >>> conf.min_confidence()  # Most uncertain dimension
+        0.6
+        >>> conf.average()  # Overall confidence
+        0.725
+    """
+
+    activation: float = 0.7  # How sure about activate_rlm?
+    model_tier: float = 0.7  # How sure about model choice?
+    depth: float = 0.7  # How sure about depth budget?
+    strategy: float = 0.7  # How sure about execution strategy?
+
+    def __post_init__(self) -> None:
+        """Validate confidence values are in [0, 1] range."""
+        for field_name in ("activation", "model_tier", "depth", "strategy"):
+            value = getattr(self, field_name)
+            if not 0.0 <= value <= 1.0:
+                raise ValueError(
+                    f"DecisionConfidence.{field_name} must be in [0, 1], got {value}"
+                )
+
+    def average(self) -> float:
+        """Average confidence across all dimensions."""
+        return (self.activation + self.model_tier + self.depth + self.strategy) / 4
+
+    def min_confidence(self) -> float:
+        """Minimum confidence (most uncertain dimension)."""
+        return min(self.activation, self.model_tier, self.depth, self.strategy)
+
+    def max_confidence(self) -> float:
+        """Maximum confidence (most certain dimension)."""
+        return max(self.activation, self.model_tier, self.depth, self.strategy)
+
+    def low_confidence_dimensions(self, threshold: float = 0.5) -> list[str]:
+        """Return dimensions with confidence below threshold."""
+        dims = []
+        if self.activation < threshold:
+            dims.append("activation")
+        if self.model_tier < threshold:
+            dims.append("model_tier")
+        if self.depth < threshold:
+            dims.append("depth")
+        if self.strategy < threshold:
+            dims.append("strategy")
+        return dims
+
+    def to_dict(self) -> dict[str, float]:
+        """Convert to dictionary for serialization."""
+        return {
+            "activation": self.activation,
+            "model_tier": self.model_tier,
+            "depth": self.depth,
+            "strategy": self.strategy,
+        }
+
+    @classmethod
+    def high(cls) -> DecisionConfidence:
+        """Create high-confidence instance (clear signals)."""
+        return cls(activation=0.9, model_tier=0.9, depth=0.9, strategy=0.9)
+
+    @classmethod
+    def medium(cls) -> DecisionConfidence:
+        """Create medium-confidence instance (default heuristics)."""
+        return cls(activation=0.7, model_tier=0.7, depth=0.7, strategy=0.7)
+
+    @classmethod
+    def low(cls) -> DecisionConfidence:
+        """Create low-confidence instance (ambiguous signals)."""
+        return cls(activation=0.4, model_tier=0.4, depth=0.4, strategy=0.4)
+
+
 # Default configurations per execution mode
 MODE_DEFAULTS: dict[ExecutionMode, dict[str, Any]] = {
     ExecutionMode.FAST: {
@@ -308,6 +400,9 @@ class OrchestrationPlan:
     strategy: ExecutionStrategy = ExecutionStrategy.DISCOVERY  # Selected execution strategy
     strategy_hints: list[str] = field(default_factory=list)  # REPL function hints for strategy
 
+    # === Decision Confidence (SPEC-12.07) ===
+    decision_confidence: DecisionConfidence = field(default_factory=DecisionConfidence.medium)
+
     @property
     def total_token_budget(self) -> int:
         """Total tokens allowed across all depths."""
@@ -356,6 +451,7 @@ class OrchestrationPlan:
             "prior_strategy": self.prior_strategy,
             "strategy": self.strategy.value,
             "strategy_hints": self.strategy_hints,
+            "decision_confidence": self.decision_confidence.to_dict(),
         }
 
     @classmethod
@@ -372,6 +468,7 @@ class OrchestrationPlan:
             tool_access=ToolAccessLevel.NONE,
             strategy=ExecutionStrategy.DIRECT_RESPONSE,
             strategy_hints=[],
+            decision_confidence=DecisionConfidence.high(),  # Clear bypass decision
         )
 
     @classmethod
@@ -451,6 +548,7 @@ class OrchestrationPlan:
             max_cost_dollars=max_cost,
             strategy=strategy,
             strategy_hints=list(defaults["hints"]),  # Copy to avoid mutation
+            decision_confidence=DecisionConfidence.high(),  # Explicit strategy selection
         )
 
     @classmethod
@@ -515,6 +613,7 @@ class OrchestrationPlan:
             tool_access=defaults["tool_access"],
             max_cost_dollars=max_cost,
             query_type=query_type,
+            decision_confidence=DecisionConfidence.high(),  # Explicit mode selection
         )
 
 
@@ -580,6 +679,7 @@ class PlanAdjustment:
 
 
 __all__ = [
+    "DecisionConfidence",
     "ExecutionMode",
     "ExecutionStrategy",
     "MODE_DEFAULTS",

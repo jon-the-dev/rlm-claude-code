@@ -20,6 +20,7 @@ from .complexity_classifier import should_activate_rlm
 from .cost_tracker import CostComponent
 from .memory_store import MemoryStore
 from .orchestration_schema import (
+    DecisionConfidence,
     ExecutionMode,
     ExecutionStrategy,
     OrchestrationContext,
@@ -1117,6 +1118,49 @@ Output your decision as a JSON object."""
         plan.complexity_score = classification.complexity
         plan.signals = all_signals
         plan.confidence = classification.confidence
+
+        # === Compute Per-Dimension Confidence (SPEC-12.07) ===
+        # Activation confidence: high if multiple signals agree, lower if ambiguous
+        if len(high_value_signals) >= 2:
+            activation_conf = 0.9  # Multiple confirming signals
+        elif len(high_value_signals) == 1:
+            activation_conf = 0.75  # Single signal
+        elif context.context_tokens > 80_000:
+            activation_conf = 0.7  # Large context threshold
+        else:
+            activation_conf = 0.6  # Edge case activation
+
+        # Model tier confidence: high if explicit signal override
+        if model_tier is not None:
+            model_conf = 0.85  # Signal-based override
+        else:
+            model_conf = 0.65  # Default from mode
+
+        # Depth confidence: high if signal-driven, lower for context-based adjustment
+        if "debugging_deep" in high_value_signals or "architectural" in high_value_signals:
+            depth_conf = 0.85  # Clear depth requirement
+        elif "depth_adjust:large_context" in heuristics_triggered:
+            depth_conf = 0.6  # Context-based adjustment (less certain)
+        elif "depth_adjust:prior_confusion" in heuristics_triggered:
+            depth_conf = 0.55  # Recovery mode (uncertain)
+        else:
+            depth_conf = 0.7  # Default depth from signals
+
+        # Strategy confidence: high if clear signal match
+        strategy_signals = [h for h in heuristics_triggered if h.startswith("strategy:")]
+        if strategy_signals:
+            strategy_conf = 0.8  # Explicit strategy match
+        elif context.complexity_signals.get("task_is_continuation"):
+            strategy_conf = 0.75  # Continuation from context
+        else:
+            strategy_conf = 0.6  # Fallback to default strategy
+
+        plan.decision_confidence = DecisionConfidence(
+            activation=activation_conf,
+            model_tier=model_conf,
+            depth=depth_conf,
+            strategy=strategy_conf,
+        )
 
         # Store heuristics for telemetry
         plan.metadata["heuristics_checked"] = heuristics_checked

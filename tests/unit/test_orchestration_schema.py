@@ -7,6 +7,7 @@ Implements: Spec §8.1 Phase 2 - Orchestration Layer tests
 import pytest
 
 from src.orchestration_schema import (
+    DecisionConfidence,
     ExecutionMode,
     ExecutionStrategy,
     MODE_DEFAULTS,
@@ -561,3 +562,224 @@ class TestOrchestrationPlanFromStrategy:
 
         assert plan.strategy == ExecutionStrategy.DIRECT_RESPONSE
         assert plan.strategy_hints == []
+
+
+class TestDecisionConfidence:
+    """Tests for DecisionConfidence dataclass (SPEC-12.07)."""
+
+    def test_default_values(self):
+        """Default values are medium confidence (0.7)."""
+        conf = DecisionConfidence()
+
+        assert conf.activation == 0.7
+        assert conf.model_tier == 0.7
+        assert conf.depth == 0.7
+        assert conf.strategy == 0.7
+
+    def test_custom_values(self):
+        """Can set custom confidence values."""
+        conf = DecisionConfidence(
+            activation=0.9,
+            model_tier=0.8,
+            depth=0.5,
+            strategy=0.6,
+        )
+
+        assert conf.activation == 0.9
+        assert conf.model_tier == 0.8
+        assert conf.depth == 0.5
+        assert conf.strategy == 0.6
+
+    def test_validation_rejects_negative(self):
+        """Negative values are rejected."""
+        with pytest.raises(ValueError, match="must be in"):
+            DecisionConfidence(activation=-0.1)
+
+    def test_validation_rejects_over_one(self):
+        """Values over 1.0 are rejected."""
+        with pytest.raises(ValueError, match="must be in"):
+            DecisionConfidence(model_tier=1.5)
+
+    def test_average(self):
+        """Average computes correctly."""
+        conf = DecisionConfidence(
+            activation=0.8,
+            model_tier=0.6,
+            depth=0.4,
+            strategy=0.6,
+        )
+
+        assert conf.average() == pytest.approx(0.6)
+
+    def test_min_confidence(self):
+        """Min confidence returns lowest dimension."""
+        conf = DecisionConfidence(
+            activation=0.8,
+            model_tier=0.6,
+            depth=0.3,  # Lowest
+            strategy=0.5,
+        )
+
+        assert conf.min_confidence() == 0.3
+
+    def test_max_confidence(self):
+        """Max confidence returns highest dimension."""
+        conf = DecisionConfidence(
+            activation=0.9,  # Highest
+            model_tier=0.6,
+            depth=0.4,
+            strategy=0.7,
+        )
+
+        assert conf.max_confidence() == 0.9
+
+    def test_low_confidence_dimensions(self):
+        """Low confidence dimensions identified correctly."""
+        conf = DecisionConfidence(
+            activation=0.8,  # Above threshold
+            model_tier=0.4,  # Below
+            depth=0.3,  # Below
+            strategy=0.6,  # Above
+        )
+
+        low = conf.low_confidence_dimensions(threshold=0.5)
+
+        assert "model_tier" in low
+        assert "depth" in low
+        assert "activation" not in low
+        assert "strategy" not in low
+
+    def test_low_confidence_dimensions_custom_threshold(self):
+        """Custom threshold works correctly."""
+        conf = DecisionConfidence(
+            activation=0.65,
+            model_tier=0.7,
+            depth=0.75,
+            strategy=0.8,
+        )
+
+        # At threshold 0.7, activation should be low
+        low = conf.low_confidence_dimensions(threshold=0.7)
+        assert "activation" in low
+        assert len(low) == 1
+
+    def test_to_dict(self):
+        """Serialization to dict works correctly."""
+        conf = DecisionConfidence(
+            activation=0.85,
+            model_tier=0.75,
+            depth=0.65,
+            strategy=0.55,
+        )
+
+        data = conf.to_dict()
+
+        assert data["activation"] == 0.85
+        assert data["model_tier"] == 0.75
+        assert data["depth"] == 0.65
+        assert data["strategy"] == 0.55
+
+    def test_high_factory(self):
+        """High confidence factory creates 0.9 values."""
+        conf = DecisionConfidence.high()
+
+        assert conf.activation == 0.9
+        assert conf.model_tier == 0.9
+        assert conf.depth == 0.9
+        assert conf.strategy == 0.9
+
+    def test_medium_factory(self):
+        """Medium confidence factory creates 0.7 values."""
+        conf = DecisionConfidence.medium()
+
+        assert conf.activation == 0.7
+        assert conf.model_tier == 0.7
+        assert conf.depth == 0.7
+        assert conf.strategy == 0.7
+
+    def test_low_factory(self):
+        """Low confidence factory creates 0.4 values."""
+        conf = DecisionConfidence.low()
+
+        assert conf.activation == 0.4
+        assert conf.model_tier == 0.4
+        assert conf.depth == 0.4
+        assert conf.strategy == 0.4
+
+
+class TestOrchestrationPlanDecisionConfidence:
+    """Tests for decision_confidence in OrchestrationPlan (SPEC-12.07)."""
+
+    def test_default_confidence(self):
+        """Plan has medium confidence by default."""
+        plan = OrchestrationPlan(
+            activate_rlm=True,
+            activation_reason="test",
+            model_tier=ModelTier.BALANCED,
+            primary_model="sonnet",
+        )
+
+        assert plan.decision_confidence.average() == 0.7
+
+    def test_bypass_has_high_confidence(self):
+        """Bypass plan has high confidence."""
+        plan = OrchestrationPlan.bypass("simple_task")
+
+        assert plan.decision_confidence.activation == 0.9
+        assert plan.decision_confidence.model_tier == 0.9
+
+    def test_from_strategy_has_high_confidence(self):
+        """Factory method from_strategy sets high confidence."""
+        plan = OrchestrationPlan.from_strategy(
+            ExecutionStrategy.RECURSIVE_DEBUG,
+            activation_reason="debugging",
+        )
+
+        assert plan.decision_confidence.activation == 0.9
+        assert plan.decision_confidence.strategy == 0.9
+
+    def test_from_mode_has_high_confidence(self):
+        """Factory method from_mode sets high confidence."""
+        plan = OrchestrationPlan.from_mode(
+            ExecutionMode.THOROUGH,
+            activation_reason="user_selected",
+        )
+
+        assert plan.decision_confidence.average() == 0.9
+
+    def test_to_dict_includes_confidence(self):
+        """Serialization includes decision_confidence."""
+        plan = OrchestrationPlan(
+            activate_rlm=True,
+            activation_reason="test",
+            model_tier=ModelTier.BALANCED,
+            primary_model="sonnet",
+            decision_confidence=DecisionConfidence(
+                activation=0.85,
+                model_tier=0.75,
+                depth=0.65,
+                strategy=0.55,
+            ),
+        )
+
+        data = plan.to_dict()
+
+        assert "decision_confidence" in data
+        assert data["decision_confidence"]["activation"] == 0.85
+        assert data["decision_confidence"]["model_tier"] == 0.75
+        assert data["decision_confidence"]["depth"] == 0.65
+        assert data["decision_confidence"]["strategy"] == 0.55
+
+    def test_confidence_can_be_updated(self):
+        """Decision confidence can be modified after creation."""
+        plan = OrchestrationPlan(
+            activate_rlm=True,
+            activation_reason="test",
+            model_tier=ModelTier.BALANCED,
+            primary_model="sonnet",
+        )
+
+        # Update confidence
+        plan.decision_confidence = DecisionConfidence.high()
+
+        assert plan.decision_confidence.activation == 0.9
