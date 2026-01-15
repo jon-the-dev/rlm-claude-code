@@ -51,7 +51,7 @@ if TYPE_CHECKING:
     from .recursive_handler import RecursiveREPL
 
 # Subprocess allowlist for sandbox
-ALLOWED_SUBPROCESSES = frozenset({"ty", "ruff"})
+ALLOWED_SUBPROCESSES = frozenset({"uv", "ty", "ruff"})
 
 # Blocked builtins that could be dangerous
 BLOCKED_BUILTINS = frozenset(
@@ -348,7 +348,7 @@ class RLMEnvironment:
 
     def _add_extended_tooling(self) -> None:
         """
-        Add pydantic, hypothesis, and cpmpy to globals.
+        Add pydantic, hypothesis, cpmpy, and data science libraries to globals.
 
         Implements: Spec §4.1.1 Extended Python Tooling
         """
@@ -377,6 +377,39 @@ class RLMEnvironment:
 
             self.globals["cp"] = cpmpy
             self.globals["cpmpy"] = cpmpy
+        except ImportError:
+            pass
+
+        # Data science libraries
+        try:
+            import numpy
+
+            self.globals["numpy"] = numpy
+            self.globals["np"] = numpy  # Common alias
+        except ImportError:
+            pass
+
+        try:
+            import pandas
+
+            self.globals["pandas"] = pandas
+            self.globals["pd"] = pandas  # Common alias
+        except ImportError:
+            pass
+
+        try:
+            import polars
+
+            self.globals["polars"] = polars
+            self.globals["pl"] = polars  # Common alias
+        except ImportError:
+            pass
+
+        try:
+            import seaborn
+
+            self.globals["seaborn"] = seaborn
+            self.globals["sns"] = seaborn  # Common alias
         except ImportError:
             pass
 
@@ -526,7 +559,6 @@ class RLMEnvironment:
 
         elif isinstance(error, KeyError):
             # Suggest available keys
-            key = str(error).strip("'\"")
             dict_keys = self._find_dict_keys_in_code(code)
             if dict_keys:
                 suggestions.append(f"Available keys: {', '.join(dict_keys[:10])}")
@@ -568,7 +600,7 @@ class RLMEnvironment:
         all_names = set()
         # Collect all available names
         all_names.update(self.globals.get("working_memory", {}).keys())
-        all_names.update(k for k in self.globals.keys() if not k.startswith("_"))
+        all_names.update(k for k in self.globals if not k.startswith("_"))
         all_names.update(self.locals.keys())
 
         # Find similar names
