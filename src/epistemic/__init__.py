@@ -31,6 +31,16 @@ from src.epistemic.evidence_auditor import (
     EvidenceAuditor,
     compute_evidence_support,
 )
+from src.epistemic.similarity import (
+    EmbeddingSimilarity,
+    LLMJudgeSimilarity,
+    SemanticSimilarity,
+    SimilarityConfig,
+    SimilarityMethod,
+    SimilarityResult,
+    cosine_similarity,
+    text_overlap_similarity,
+)
 from src.epistemic.types import (
     ClaimVerification,
     EpistemicGap,
@@ -58,6 +68,15 @@ __all__ = [
     "AuditResult",
     "BatchAuditResult",
     "compute_evidence_support",
+    # Semantic similarity
+    "SemanticSimilarity",
+    "EmbeddingSimilarity",
+    "LLMJudgeSimilarity",
+    "SimilarityResult",
+    "SimilarityConfig",
+    "SimilarityMethod",
+    "cosine_similarity",
+    "text_overlap_similarity",
     # Type aliases
     "GapType",
     "FlagReason",
