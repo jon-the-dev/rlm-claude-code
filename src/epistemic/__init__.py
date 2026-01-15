@@ -19,6 +19,12 @@ Example:
     0.8485281374238571
 """
 
+from src.epistemic.claim_extractor import (
+    ClaimExtractor,
+    ExtractedClaim,
+    ExtractionResult,
+    extract_evidence_references,
+)
 from src.epistemic.types import (
     ClaimVerification,
     EpistemicGap,
@@ -36,6 +42,11 @@ __all__ = [
     "EpistemicGap",
     "HallucinationReport",
     "VerificationConfig",
+    # Claim extraction
+    "ClaimExtractor",
+    "ExtractedClaim",
+    "ExtractionResult",
+    "extract_evidence_references",
     # Type aliases
     "GapType",
     "FlagReason",

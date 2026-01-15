@@ -360,14 +360,18 @@ from .memory_backend import (
 
 # Epistemic verification (SPEC-16)
 from .epistemic import (
+    ClaimExtractor,
     ClaimVerification,
     EpistemicGap,
+    ExtractedClaim,
+    ExtractionResult,
     FlagReason,
     GapType,
     HallucinationReport,
     OnFailureAction,
     VerificationConfig,
     VerificationMode,
+    extract_evidence_references,
 )
 
 # Trajectory and analysis
@@ -670,12 +674,16 @@ __all__ = [
     "SQLiteBackend",
     "create_backend",
     # Epistemic verification (SPEC-16)
+    "ClaimExtractor",
     "ClaimVerification",
     "EpistemicGap",
+    "ExtractedClaim",
+    "ExtractionResult",
     "FlagReason",
     "GapType",
     "HallucinationReport",
     "OnFailureAction",
     "VerificationConfig",
     "VerificationMode",
+    "extract_evidence_references",
 ]
