@@ -392,3 +392,123 @@ class TestModularOrchestratorIntegration:
         )
 
         assert point.turn == 10
+
+
+# --- SPEC-16.22: Verification Checkpoint ---
+
+
+class TestVerificationCheckpoint:
+    """Tests for epistemic verification checkpoint in orchestrator."""
+
+    def test_orchestrator_has_verification_config(self) -> None:
+        """
+        @trace SPEC-16.22
+        RLMOrchestrator should have verification_config.
+        """
+        from src.orchestrator.core import RLMOrchestrator
+
+        orchestrator = RLMOrchestrator()
+        assert hasattr(orchestrator, "verification_config")
+        assert orchestrator.verification_config is not None
+
+    def test_verification_config_enabled_by_default(self) -> None:
+        """
+        @trace SPEC-16.22
+        Verification should be enabled by default (always-on).
+        """
+        from src.orchestrator.core import RLMOrchestrator
+
+        orchestrator = RLMOrchestrator()
+        assert orchestrator.verification_config.enabled is True
+
+    def test_verification_config_can_be_disabled(self) -> None:
+        """
+        @trace SPEC-16.22
+        Verification should be disableable via config.
+        """
+        from src.epistemic import VerificationConfig
+        from src.orchestrator.core import RLMOrchestrator
+
+        config = VerificationConfig(enabled=False)
+        orchestrator = RLMOrchestrator(verification_config=config)
+        assert orchestrator.verification_config.enabled is False
+
+    def test_verify_response_method_exists(self) -> None:
+        """
+        @trace SPEC-16.22
+        _verify_response method should exist on orchestrator.
+        """
+        from src.orchestrator.core import RLMOrchestrator
+
+        orchestrator = RLMOrchestrator()
+        assert hasattr(orchestrator, "_verify_response")
+        assert callable(orchestrator._verify_response)
+
+    @pytest.mark.asyncio
+    async def test_verify_response_returns_report_when_disabled(self) -> None:
+        """
+        @trace SPEC-16.22
+        _verify_response should return empty report when disabled.
+        """
+        from src.epistemic import VerificationConfig
+        from src.orchestrator.core import RLMOrchestrator
+        from src.trajectory import StreamingTrajectory, TrajectoryRenderer
+        from src.types import SessionContext
+
+        config = VerificationConfig(enabled=False)
+        orchestrator = RLMOrchestrator(verification_config=config)
+
+        context = SessionContext()
+        trajectory = StreamingTrajectory(TrajectoryRenderer())
+
+        report, should_retry = await orchestrator._verify_response(
+            "Test response", context, MagicMock(), trajectory
+        )
+
+        assert report.response_id == "disabled"
+        assert should_retry is False
+
+    @pytest.mark.asyncio
+    async def test_verify_response_returns_report_when_no_evidence(self) -> None:
+        """
+        @trace SPEC-16.22
+        _verify_response should return empty report when no evidence.
+        """
+        from src.orchestrator.core import RLMOrchestrator
+        from src.trajectory import StreamingTrajectory, TrajectoryRenderer
+        from src.types import SessionContext
+
+        orchestrator = RLMOrchestrator()
+        context = SessionContext()  # Empty context, no files or tool outputs
+        trajectory = StreamingTrajectory(TrajectoryRenderer())
+
+        report, should_retry = await orchestrator._verify_response(
+            "Test response", context, MagicMock(), trajectory
+        )
+
+        assert report.response_id == "no_evidence"
+        assert should_retry is False
+
+    def test_trajectory_event_type_verification_exists(self) -> None:
+        """
+        @trace SPEC-16.22
+        TrajectoryEventType should have VERIFICATION type.
+        """
+        from src.trajectory import TrajectoryEventType
+
+        assert hasattr(TrajectoryEventType, "VERIFICATION")
+        assert TrajectoryEventType.VERIFICATION.value == "verification"
+
+    def test_verification_config_default_values(self) -> None:
+        """
+        @trace SPEC-16.22
+        VerificationConfig should have sensible defaults.
+        """
+        from src.epistemic import VerificationConfig
+
+        config = VerificationConfig()
+        assert config.enabled is True
+        assert config.mode == "sample"  # Sample mode by default for cost control
+        assert config.support_threshold == 0.7
+        assert config.max_retries == 2
+        assert config.on_failure == "retry"  # Default to retry on failure

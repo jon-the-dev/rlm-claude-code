@@ -73,6 +73,12 @@ from ..complexity_classifier import should_activate_rlm
 from ..config import RLMConfig, default_config
 from ..context_manager import externalize_context
 from ..cost_tracker import CostComponent, get_cost_tracker
+from ..epistemic import (
+    ClaimExtractor,
+    EvidenceAuditor,
+    HallucinationReport,
+    VerificationConfig,
+)
 from ..prompts import build_rlm_system_prompt
 from ..recursive_handler import RecursiveREPL
 from ..repl_environment import RLMEnvironment
@@ -122,6 +128,7 @@ class RLMOrchestrator:
         memory_store: MemoryStore | None = None,
         auto_memory: bool = True,
         error_recovery: ErrorRecoveryConfig | None = None,
+        verification_config: VerificationConfig | None = None,
     ):
         """
         Initialize orchestrator.
@@ -133,6 +140,7 @@ class RLMOrchestrator:
             memory_store: Optional memory store for auto-memory integration
             auto_memory: If True and memory_store provided, auto-store findings
             error_recovery: Configuration for error recovery strategies
+            verification_config: Epistemic verification config (uses default if None)
         """
         self.config = config or default_config
         self.client = client
@@ -143,6 +151,8 @@ class RLMOrchestrator:
         self._memory_store = memory_store
         self._auto_memory = auto_memory
         self._error_recovery = error_recovery or ErrorRecoveryConfig()
+        # SPEC-16.22: Epistemic verification config (always-on by default)
+        self.verification_config = verification_config or VerificationConfig()
 
     def _ensure_client(self) -> ClaudeClient:
         """Ensure we have an API client."""
@@ -957,6 +967,120 @@ Respond with just the simplified code in a ```python block."""
             )
             await trajectory.emit(event)
             yield event
+
+    async def _verify_response(
+        self,
+        response: str,
+        context: SessionContext,
+        client: ClaudeClient,
+        trajectory: StreamingTrajectory,
+    ) -> tuple[HallucinationReport, bool]:
+        """
+        Verify response for hallucinations via epistemic verification.
+
+        Implements: SPEC-16.22 Verification checkpoint in orchestrator
+
+        This checkpoint:
+        1. Extracts claims from the response
+        2. Audits each claim against available evidence
+        3. Returns a HallucinationReport with results
+        4. Determines if retry is needed based on config
+
+        Args:
+            response: The response text to verify
+            context: Session context with evidence (files, tool outputs)
+            client: LLM client for verification calls
+            trajectory: Trajectory for event logging
+
+        Returns:
+            Tuple of (HallucinationReport, should_retry)
+        """
+        if not self.verification_config.enabled:
+            # Return empty report if verification disabled
+            return HallucinationReport(response_id="disabled"), False
+
+        # Build evidence dict from context
+        evidence: dict[str, str] = {}
+        for path, content in context.files.items():
+            evidence[path] = content
+        for i, tool_output in enumerate(context.tool_outputs):
+            evidence[f"tool_{i}_{tool_output.tool_name}"] = tool_output.content
+
+        # Skip verification if no evidence available
+        if not evidence:
+            return HallucinationReport(response_id="no_evidence"), False
+
+        # Initialize extractor and auditor
+        extractor = ClaimExtractor(
+            client=client,
+            default_model=self.verification_config.verification_model,
+            max_claims=self.verification_config.max_claims_per_response,
+        )
+        auditor = EvidenceAuditor(
+            client=client,
+            default_model=self.verification_config.verification_model,
+            critical_model=self.verification_config.critical_model,
+            support_threshold=self.verification_config.support_threshold,
+        )
+
+        # Extract claims
+        extraction_result = await extractor.extract_claims(response)
+        claims = extraction_result.claims
+
+        # Apply sampling if in sample mode
+        if self.verification_config.mode == "sample":
+            sampled_claims = [
+                c for i, c in enumerate(claims)
+                if self.verification_config.should_verify_claim(i, c.is_critical)
+            ]
+            claims = sampled_claims
+        elif self.verification_config.mode == "critical_only":
+            claims = [c for c in claims if c.is_critical]
+
+        # Map claims to evidence
+        if claims:
+            claims = await extractor.map_claims_to_evidence(claims, evidence)
+
+        # Audit claims
+        audit_result = await auditor.audit_claims(claims, evidence)
+
+        # Build HallucinationReport
+        report = HallucinationReport(
+            response_id=extraction_result.response_id,
+            total_claims=len(extraction_result.claims),
+            verified_claims=audit_result.total_claims - audit_result.flagged_count,
+            flagged_claims=audit_result.flagged_count,
+        )
+
+        # Add claim verifications and gaps to report
+        for result in audit_result.results:
+            report.add_claim(result.verification)
+            for gap in result.gaps:
+                report.add_gap(gap)
+
+        # Determine if should retry based on config
+        should_retry = False
+        if report.has_critical_gaps and self.verification_config.on_failure == "retry":
+            should_retry = True
+
+        # Emit verification event
+        verification_event = TrajectoryEvent(
+            type=TrajectoryEventType.VERIFICATION,
+            depth=0,
+            content=f"Verification: {report.verified_claims}/{report.total_claims} claims verified"
+            + (f" ({report.flagged_claims} flagged)" if report.flagged_claims > 0 else ""),
+            metadata={
+                "total_claims": report.total_claims,
+                "verified_claims": report.verified_claims,
+                "flagged_claims": report.flagged_claims,
+                "has_critical_gaps": report.has_critical_gaps,
+                "overall_confidence": report.overall_confidence,
+                "should_retry": should_retry,
+            },
+        )
+        await trajectory.emit(verification_event)
+
+        return report, should_retry
 
 
 __all__ = [

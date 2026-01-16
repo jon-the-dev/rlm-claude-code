@@ -161,6 +161,7 @@ class TrajectoryEventType(Enum):
     TOOL_USE = "tool_use"
     COST_REPORT = "cost_report"
     BUDGET_ALERT = "budget_alert"
+    VERIFICATION = "verification"  # SPEC-16.22: Epistemic verification checkpoint
 
 
 @dataclass
